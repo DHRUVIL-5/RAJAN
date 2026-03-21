@@ -1,0 +1,4 @@
+# RAJAN — Minimal dependencies (Python stdlib used as much as possible)
+# Only install what's truly needed
+
+requests>=2.28.0

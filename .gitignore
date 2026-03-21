@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+env/
+memory/rajan.db
+memory/llm_config.json
+logs/
+reports/
+sessions/
+*.log
+.DS_Store
+Thumbs.db
