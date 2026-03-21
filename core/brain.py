@@ -161,6 +161,16 @@ class Brain:
         )
         self.logger.info(f"Full log saved: {self.logger.log_file}", "RAJAN")
 
+        # ── Vulnerability Chain Analysis ──
+        try:
+            from core.chain_analyzer import ChainAnalyzer
+            self.logger.info("Running vulnerability chain analysis...", "RAJAN")
+            ca = ChainAnalyzer(self.memory, self.llm, self.logger, self.session_id)
+            chains = ca.analyze()
+            ca.print_chains(chains)
+        except Exception as e:
+            self.logger.warning(f"Chain analysis skipped: {e}", "RAJAN")
+
         # Notify user
         self._notify_done(target, findings)
 

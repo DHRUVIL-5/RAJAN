@@ -139,9 +139,34 @@ class RAJAN:
             Notifier().setup_email()
             return
 
+        if args.selftest:
+            from core.selftest import run_selftest
+            run_selftest()
+            return
+
+        if args.update:
+            from core.selftest import check_update
+            check_update()
+            return
+
+        if args.config:
+            from core.config import Config
+            Config().interactive_setup()
+            return
+
+        if args.export:
+            self._export_session(args.export)
+            return
+
+        if args.chain:
+            self._run_chain_analysis()
+            return
+
         if args.target:
             scope = args.scope or ""
             mode = "semi" if args.semi else "auto"
+            if args.quick:
+                print(f"  ⚡ Quick mode enabled — critical checks only")
             self._start_autonomous(args.target, scope, mode)
             return
 
@@ -252,9 +277,42 @@ class RAJAN:
                         sid = sessions[num][0]
                     except Exception:
                         sid = sessions[0][0]
-                speed_input = input("  Replay speed (1=normal, 2=fast, 0=instant): ").strip()
+                speed_input = input("  Speed (1=normal, 2=fast, 0=instant): ").strip()
                 speed = float(speed_input) if speed_input else 1.0
                 replay_session(self.memory, sid, speed)
+            return None
+
+        # Chain analysis
+        if any(kw in t for kw in ["chain", "chain analysis", "vulnerability chain", "attack chain"]):
+            self._run_chain_analysis()
+            return None
+
+        # Export
+        if "export" in t:
+            fmt = "all"
+            for f in ["json", "csv", "txt", "hackerone", "all"]:
+                if f in t:
+                    fmt = f
+                    break
+            self._export_session(fmt)
+            return None
+
+        # Config
+        if any(kw in t for kw in ["config", "settings", "configure"]):
+            from core.config import Config
+            Config().interactive_setup()
+            return None
+
+        # Self-test
+        if any(kw in t for kw in ["selftest", "self test", "self-test", "test rajan", "health check"]):
+            from core.selftest import run_selftest
+            run_selftest()
+            return None
+
+        # Check for updates
+        if any(kw in t for kw in ["update", "check update", "new version"]):
+            from core.selftest import check_update
+            check_update()
             return None
 
         # Email notification setup
@@ -446,6 +504,37 @@ class RAJAN:
         filename = r.generate_report()
         print(f"\n  ✅ Report saved: {filename}\n")
 
+    def _export_session(self, fmt="all"):
+        sid = self.session_id or self.memory.get_last_session()
+        if not sid:
+            print("  No session to export. Run a scan first!")
+            return
+        from core.exporter import Exporter
+        e = Exporter(self.memory, sid)
+        if fmt == "all":
+            files = e.export_all()
+            for f, path in files.items():
+                print(f"  ✅ {f.upper()}: {path}")
+        elif fmt == "json":
+            print(f"  ✅ JSON: {e.export_json()}")
+        elif fmt == "csv":
+            print(f"  ✅ CSV: {e.export_csv()}")
+        elif fmt == "txt":
+            print(f"  ✅ TXT: {e.export_txt()}")
+        elif fmt == "hackerone":
+            print(f"  ✅ HackerOne: {e.export_hackerone()}")
+        print()
+
+    def _run_chain_analysis(self):
+        sid = self.session_id or self.memory.get_last_session()
+        if not sid:
+            print("  No session to analyze. Run a scan first!")
+            return
+        from core.chain_analyzer import ChainAnalyzer
+        ca = ChainAnalyzer(self.memory, self.llm, self.logger, sid)
+        chains = ca.analyze()
+        ca.print_chains(chains)
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -470,6 +559,18 @@ def main():
                         help="Replay a past session log")
     parser.add_argument("--notify-setup", action="store_true",
                         help="Setup email notifications")
+    parser.add_argument("--selftest", action="store_true",
+                        help="Run self-test to verify RAJAN is working")
+    parser.add_argument("--update", action="store_true",
+                        help="Check for newer RAJAN version")
+    parser.add_argument("--config", action="store_true",
+                        help="Open configuration settings")
+    parser.add_argument("--export", metavar="FORMAT",
+                        help="Export last session (json/csv/txt/hackerone/all)")
+    parser.add_argument("--chain", action="store_true",
+                        help="Run vulnerability chain analysis on last session")
+    parser.add_argument("--quick", action="store_true",
+                        help="Quick scan mode — only critical checks")
 
     args = parser.parse_args()
 

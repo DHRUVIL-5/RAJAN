@@ -229,3 +229,26 @@ Made with ❤️ by **DHRUVIL-5**
 *github.com/DHRUVIL-5/RAJAN*
 
 </div>
+
+---
+
+## ⚖️ Legal & Ethical Disclaimer
+
+> **This project is intended strictly for educational purposes and authorized security testing only.**
+>
+> The developer does not promote, support, or condone any illegal or unauthorized activities. Users are solely responsible for ensuring they have explicit permission before using this tool on any system or network.
+>
+> Any misuse of this software is the sole responsibility of the user.
+
+---
+
+## 🆕 Phase 4 Features
+
+| Feature | Description |
+|---------|-------------|
+| ⛓️ **Vulnerability Chain Analyzer** | Automatically finds how vulns can be chained for higher impact — unique to RAJAN |
+| 📦 **Multi-format Export** | Export findings as JSON, CSV, TXT, or HackerOne-ready templates |
+| ⚙️ **Config System** | Persistent settings saved between sessions |
+| 🧪 **Self-Test** | `--selftest` verifies every component works |
+| 🔄 **Auto-Update Check** | `--update` checks GitHub for newer version |
+| 🔍 **Chain Analysis CLI** | `--chain` runs chain analysis on any session |
