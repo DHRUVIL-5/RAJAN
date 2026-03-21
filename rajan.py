@@ -57,22 +57,27 @@ HELP_TEXT = """
 ╔══════════════════════════════════════════════════════╗
 ║              RAJAN — How to Talk to Me              ║
 ╠══════════════════════════════════════════════════════╣
-║  Just type naturally! Examples:                     ║
-║                                                      ║
+║  🎯 SCANNING                                        ║
 ║  "scan example.com for vulnerabilities"             ║
 ║  "start bug bounty on target.com"                   ║
-║  "what is XSS?"                                     ║
-║  "generate a report"                                ║
-║  "show my findings"                                 ║
-║  "resume last session"                              ║
-║  "check what tools I have"                          ║
-║  "cve log4j" / "cve CVE-2021-44228"               ║
-║  "payloads xss" / "payloads sqli"                 ║
-║  "mitre T1190" / "mitre ssrf"                     ║
-║  "bug bounty checklist"                            ║
-║  "severity guide"                                  ║
+║  "pentest target.com scope: *.target.com"           ║
 ║                                                      ║
-║  During autonomous work, prefix with ! to chat:     ║
+║  📚 KNOWLEDGE BASE                                  ║
+║  "cve log4j" / "cve CVE-2021-44228"               ║
+║  "payloads xss" / "payloads sqli" / "payloads ssrf"║
+║  "mitre T1190" / "mitre ssrf"                      ║
+║  "bug bounty checklist" / "severity guide"          ║
+║  "what is XSS?" / "explain SSRF"                   ║
+║                                                      ║
+║  📊 SESSION & REPORTS                               ║
+║  "show my findings" / "generate report"             ║
+║  "sessions" / "resume last session"                 ║
+║  "replay session" / "check what tools I have"       ║
+║                                                      ║
+║  ⚙️  SETTINGS                                        ║
+║  "setup email notifications"                        ║
+║                                                      ║
+║  💬 WHILE RAJAN WORKS (prefix with !)              ║
 ║  !status  !stop  !resume  !report so far           ║
 ║  !focus on web   !skip   !quit                      ║
 ╚══════════════════════════════════════════════════════╝
@@ -122,6 +127,16 @@ class RAJAN:
 
         if args.resume:
             self._resume_session(args.resume)
+            return
+
+        if args.replay:
+            from core.replay import replay_session
+            replay_session(self.memory, args.replay)
+            return
+
+        if args.notify_setup:
+            from core.notifier import Notifier
+            Notifier().setup_email()
             return
 
         if args.target:
@@ -223,6 +238,30 @@ class RAJAN:
                 return ("I'd love to help! Just tell me the target. Example:\n"
                         "  'scan example.com for vulnerabilities'\n"
                         "  'start bug bounty on target.com, scope: *.target.com'")
+
+        # Session replay
+        if "replay" in t:
+            from core.replay import list_sessions_for_replay, replay_session
+            sessions = list_sessions_for_replay(self.memory)
+            if sessions:
+                parts = text.split()
+                sid = next((p for p in parts if len(p) == 8), None)
+                if not sid:
+                    try:
+                        num = int(input("  Select session number: ").strip()) - 1
+                        sid = sessions[num][0]
+                    except Exception:
+                        sid = sessions[0][0]
+                speed_input = input("  Replay speed (1=normal, 2=fast, 0=instant): ").strip()
+                speed = float(speed_input) if speed_input else 1.0
+                replay_session(self.memory, sid, speed)
+            return None
+
+        # Email notification setup
+        if "email" in t and ("setup" in t or "notify" in t or "notification" in t):
+            from core.notifier import Notifier
+            Notifier().setup_email()
+            return None
 
         # CVE lookup
         if t.startswith("cve ") or "look up cve" in t:
@@ -427,6 +466,10 @@ def main():
                         help="List all past sessions")
     parser.add_argument("--resume", metavar="SESSION_ID",
                         help="Resume a previous session")
+    parser.add_argument("--replay", metavar="SESSION_ID",
+                        help="Replay a past session log")
+    parser.add_argument("--notify-setup", action="store_true",
+                        help="Setup email notifications")
 
     args = parser.parse_args()
 

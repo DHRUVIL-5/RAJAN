@@ -14,6 +14,7 @@ from core.logger import Logger
 from core.memory import Memory
 from core.llm import LLMConnector
 from core.task_tree import TaskTree
+from core.notifier import Notifier
 
 
 class Brain:
@@ -30,6 +31,7 @@ class Brain:
         self.paused = False
         self.current_task = None
         self.task_tree = None
+        self.notifier = Notifier()
 
     # ── Autonomous Session ────────────────────────────────
 
@@ -246,15 +248,12 @@ class Brain:
         self.logger.success(f"Tasks matching '{focus_keyword}' moved to top!", "Brain")
 
     def _notify_done(self, target, findings):
-        """Terminal bell notification when done"""
-        try:
-            print("\a")  # terminal bell — works on Termux
-        except Exception:
-            pass
-        print(f"\n{'🎉'*10}")
-        print(f"  RAJAN finished working on: {target}")
-        print(f"  Found {len(findings)} vulnerabilities!")
-        print(f"{'🎉'*10}\n")
+        """Notify user session is complete — Termux + terminal bell"""
+        self.notifier.notify(
+            f"Scan Complete: {target}",
+            f"Found {len(findings)} vulnerabilities. Check your report!",
+            len(findings)
+        )
 
     # ── Interactive Chat (no autonomous session) ──────────
 

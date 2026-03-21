@@ -261,11 +261,17 @@ class BugBountyGuide:
 
     def assess_severity(self, description):
         desc_lower = description.lower()
-        if any(kw in desc_lower for kw in ["rce", "remote code", "unauthenticated", "full access"]):
+        if any(kw in desc_lower for kw in ["rce", "remote code execution",
+                                            "unauthenticated", "full access",
+                                            "log4shell", "critical"]):
             return "CRITICAL"
-        if any(kw in desc_lower for kw in ["sql injection", "auth bypass", "stored xss", "idor"]):
+        if any(kw in desc_lower for kw in ["sql injection", "auth bypass",
+                                            "stored xss", "idor", "command injection",
+                                            "path traversal", "lfi", "xxe", "ssti"]):
             return "HIGH"
-        if any(kw in desc_lower for kw in ["reflected xss", "csrf", "redirect", "header"]):
+        if any(kw in desc_lower for kw in ["reflected xss", "csrf", "open redirect",
+                                            "ssrf", "information disclosure",
+                                            "security misconfiguration"]):
             return "MEDIUM"
         return "LOW"
 
