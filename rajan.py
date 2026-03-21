@@ -66,6 +66,11 @@ HELP_TEXT = """
 ║  "show my findings"                                 ║
 ║  "resume last session"                              ║
 ║  "check what tools I have"                          ║
+║  "cve log4j" / "cve CVE-2021-44228"               ║
+║  "payloads xss" / "payloads sqli"                 ║
+║  "mitre T1190" / "mitre ssrf"                     ║
+║  "bug bounty checklist"                            ║
+║  "severity guide"                                  ║
 ║                                                      ║
 ║  During autonomous work, prefix with ! to chat:     ║
 ║  !status  !stop  !resume  !report so far           ║
@@ -218,6 +223,58 @@ class RAJAN:
                 return ("I'd love to help! Just tell me the target. Example:\n"
                         "  'scan example.com for vulnerabilities'\n"
                         "  'start bug bounty on target.com, scope: *.target.com'")
+
+        # CVE lookup
+        if t.startswith("cve ") or "look up cve" in t:
+            query = text.split(" ", 1)[-1].strip()
+            from knowledge.cve_db import CVEDatabase
+            db = CVEDatabase()
+            db.print_search_results(query)
+            return None
+
+        # Payload library
+        if t.startswith("payload") or t.startswith("payloads"):
+            parts = text.split()
+            from knowledge.payloads import PayloadLibrary
+            lib = PayloadLibrary()
+            if len(parts) > 1:
+                lib.print_category(parts[1])
+            else:
+                lib.print_all()
+            return None
+
+        # MITRE lookup
+        if t.startswith("mitre ") or "mitre attack" in t:
+            parts = text.upper().split()
+            tid = next((p for p in parts if p.startswith("T1")), None)
+            from knowledge.mitre import MITREMapper
+            m = MITREMapper()
+            if tid:
+                m.print_technique(tid)
+            else:
+                keyword = text.split(" ", 1)[-1]
+                results = m.search(keyword)
+                for tid, data in list(results.items())[:5]:
+                    m.print_technique(tid)
+            return None
+
+        # Bug bounty checklist
+        if any(kw in t for kw in ["bug bounty", "checklist", "methodology"]):
+            from knowledge.methodology import BugBountyGuide
+            guide = BugBountyGuide()
+            target_hint = ""
+            import re
+            domains = re.findall(r'\b(?:[a-zA-Z0-9]+\.)+[a-zA-Z]{2,}\b', text)
+            if domains:
+                target_hint = domains[0]
+            guide.print_checklist("web", target_hint)
+            return None
+
+        # Severity guide
+        if "severity" in t and "guide" in t:
+            from knowledge.methodology import BugBountyGuide
+            BugBountyGuide().print_severity_guide()
+            return None
 
         # LLM general chat
         self.logger.thinking("Processing your question...", "RAJAN")
