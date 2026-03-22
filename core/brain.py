@@ -11,6 +11,7 @@ RAJAN Brain — ReACT Autonomous Engine v2
 import threading
 import queue
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
 from core.logger import Logger
 from core.memory import Memory
@@ -120,20 +121,27 @@ class Brain:
             self.logger.thinking(f"[{task.agent.upper()}] {task.name}", "Brain")
 
             try:
-                result = agent.run_task(task.name)
+                # Run agent in ThreadPoolExecutor — prevents GIL blocking on Termux
+                with ThreadPoolExecutor(max_workers=1) as ex:
+                    future = ex.submit(agent.run_task, task.name)
+                    try:
+                        result = future.result(timeout=300)  # 5 min max per task
+                    except FuturesTimeout:
+                        result = "Task timed out after 5 minutes"
+                        self.logger.warning(f"Timeout: {task.name}", task.agent.upper())
+
                 self.task_tree.mark_done(task, result or "")
-                # Publish to agent bus (agent-to-agent comms)
                 self.agent_bus[task.agent] = result or ""
                 self._notify_other_agents(agent_map, task.agent, result)
                 self.logger.success(f"Done: {task.name}", task.agent.upper())
 
-                # Feedback loop — re-analyze and add tasks every 5 completions
                 if stats.get("done", 0) > 0 and stats.get("done", 0) % 5 == 0:
                     self._feedback_replan(target, agent_map)
 
             except Exception as e:
                 self.task_tree.mark_failed(task, str(e))
                 self.logger.error(f"Failed: {task.name} — {e}", task.agent.upper())
+                # Don't crash the whole session on one task failure
 
             time.sleep(0.3)
 

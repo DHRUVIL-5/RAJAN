@@ -1,13 +1,20 @@
 """
 RAJAN Deep Web Agent v3
 XSS, SQLi, IDOR, SSRF, LFI, SSTI, Open Redirect, CSRF, Auth, SSL
+Uses requests throughout (standardized HTTP client)
 """
 
-import urllib.request, urllib.parse, urllib.error, re, ssl, socket, time
+import re, socket, time
+import requests
+import requests.exceptions
+import urllib3
+
 from agents.base import BaseAgent
 from tools.toolmanager import ToolManager
 from knowledge.payloads import PayloadLibrary
 from knowledge.mitre import MITREMapper
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class WebAgent(BaseAgent):
@@ -17,55 +24,45 @@ class WebAgent(BaseAgent):
         self.payloads = PayloadLibrary()
         self.mitre = MITREMapper()
         self.base_url = self._resolve_base_url()
-        self.hdrs = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
-                     "Accept": "text/html,application/json,*/*"}
+        # Shared requests session — connection reuse, consistent SSL handling
+        self._session = requests.Session()
+        self._session.headers.update({
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+            "Accept": "text/html,application/json,*/*"
+        })
+        self._session.verify = False  # handles self-signed certs uniformly
 
     def _resolve_base_url(self):
         for scheme in ("https", "http"):
             try:
-                ctx = ssl.create_default_context()
-                ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
-                req = urllib.request.Request(f"{scheme}://{self.target}", headers={"User-Agent":"Mozilla/5.0"})
-                urllib.request.urlopen(req, timeout=5, context=ctx)
+                requests.get(f"{scheme}://{self.target}",
+                             timeout=5, verify=False, allow_redirects=False)
                 return f"{scheme}://{self.target}"
             except Exception:
                 continue
         return f"https://{self.target}"
 
-    def _ctx(self):
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
-        return ctx
-
     def _get(self, path="", params=None, timeout=8):
         url = f"{self.base_url}{path}"
-        # Hard scope check — block if redirect or path leads out of scope
         if not self.is_in_scope(url):
             return 0, "", {}
         try:
-            if params:
-                url += "?" + urllib.parse.urlencode(params)
-            req = urllib.request.Request(url, headers=self.hdrs)
-            with urllib.request.urlopen(req, timeout=timeout, context=self._ctx()) as r:
-                return r.status, r.read(16384).decode("utf-8", errors="ignore"), dict(r.headers)
-        except urllib.error.HTTPError as e:
-            return e.code, "", {}
+            r = self._session.get(url, params=params, timeout=timeout,
+                                   allow_redirects=False)
+            return r.status_code, r.text[:16384], dict(r.headers)
+        except requests.exceptions.HTTPError as e:
+            return e.response.status_code if e.response else 0, "", {}
         except Exception:
             return 0, "", {}
 
     def _post(self, path="", data=None, timeout=8):
         url = f"{self.base_url}{path}"
-        # Hard scope check
         if not self.is_in_scope(url):
             return 0, "", {}
         try:
-            post_data = urllib.parse.urlencode(data or {}).encode()
-            h = {**self.hdrs, "Content-Type": "application/x-www-form-urlencoded"}
-            req = urllib.request.Request(url, data=post_data, headers=h)
-            with urllib.request.urlopen(req, timeout=timeout, context=self._ctx()) as r:
-                return r.status, r.read(8192).decode("utf-8", errors="ignore"), dict(r.headers)
-        except urllib.error.HTTPError as e:
-            return e.code, "", {}
+            r = self._session.post(url, data=data or {}, timeout=timeout,
+                                    allow_redirects=False)
+            return r.status_code, r.text[:8192], dict(r.headers)
         except Exception:
             return 0, "", {}
 
@@ -206,15 +203,17 @@ class WebAgent(BaseAgent):
                     ("Private Key",r'-----BEGIN (RSA |EC )?PRIVATE KEY-----')]
         found = 0
         for js_url in js_urls[:15]:
+            if not self.is_in_scope(js_url):
+                continue
             try:
-                req = urllib.request.Request(js_url, headers=self.hdrs)
-                with urllib.request.urlopen(req, timeout=8, context=self._ctx()) as r:
-                    content = r.read(100000).decode("utf-8",errors="ignore")
+                r = self._session.get(js_url, timeout=8)
+                content = r.text[:100000]
                 for name, pat in patterns:
                     if re.search(pat, content):
                         found += 1
-                        self.add_finding(f"Exposed {name} in JavaScript","CRITICAL",
-                            f"Hardcoded {name} in client-side JS.",js_url,"pattern matched","T1552")
+                        self.add_finding(f"Exposed {name} in JavaScript", "CRITICAL",
+                            f"Hardcoded {name} in client-side JS.", js_url,
+                            "pattern matched", "T1552")
             except Exception:
                 pass
         return f"JS: {len(js_urls)} files analyzed, {found} secrets found"

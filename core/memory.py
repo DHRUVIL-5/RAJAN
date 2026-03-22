@@ -211,6 +211,14 @@ class Memory:
     # ── Intel ─────────────────────────────────────────────
 
     def save_intel(self, session_id, intel_type, key, value):
+        """Save intel with deduplication — skip if identical key+value already exists"""
+        # Check for existing identical entry first
+        cur = self.conn.execute(
+            "SELECT id FROM intel WHERE session_id=? AND type=? AND key=? AND value=?",
+            (session_id, intel_type, key, str(value))
+        )
+        if cur.fetchone():
+            return  # Already exists — skip duplicate
         now = datetime.datetime.now().isoformat()
         self.conn.execute(
             "INSERT INTO intel (session_id,type,key,value,found_at) VALUES (?,?,?,?,?)",

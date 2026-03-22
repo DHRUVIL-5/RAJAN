@@ -3,8 +3,11 @@ RAJAN Cloud Agent
 Cloud misconfiguration detection
 Scope-enforced: only checks buckets belonging to the target domain
 """
-import urllib.request
+import requests
+import urllib3
 from agents.base import BaseAgent
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class CloudAgent(BaseAgent):
@@ -35,16 +38,15 @@ class CloudAgent(BaseAgent):
             if base_name not in url:
                 continue
             try:
-                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(req, timeout=5) as r:
-                    body = r.read(200).decode("utf-8", errors="ignore")
-                    if any(kw in body for kw in
-                           ["ListBucketResult", "Contents", "BlobServiceProperties"]):
-                        self.add_finding(
-                            "Public Cloud Storage Exposed", "CRITICAL",
-                            f"Cloud storage at {url} is publicly accessible.",
-                            url, "", "T1530"
-                        )
+                r = requests.get(url, timeout=5, verify=False)
+                body = r.text[:200]
+                if any(kw in body for kw in
+                       ["ListBucketResult", "Contents", "BlobServiceProperties"]):
+                    self.add_finding(
+                        "Public Cloud Storage Exposed", "CRITICAL",
+                        f"Cloud storage at {url} is publicly accessible.",
+                        url, "", "T1530"
+                    )
             except Exception:
                 pass
 

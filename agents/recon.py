@@ -1,14 +1,24 @@
 """
 RAJAN Recon Agent
 DNS enumeration, WHOIS, subdomain discovery
-Scope-enforced: every URL and subdomain checked before use
+Uses requests throughout (standardized - no urllib mixing)
+Scope-enforced on every network call
 """
 
 import socket
-import urllib.request
+import requests
+import requests.exceptions
 
 from agents.base import BaseAgent
 from tools.toolmanager import ToolManager
+
+# Shared session for connection reuse
+_SESSION = requests.Session()
+_SESSION.headers.update({"User-Agent": "Mozilla/5.0 (RAJAN Scanner)"})
+_SESSION.verify = False  # handle self-signed certs
+
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class ReconAgent(BaseAgent):
@@ -24,14 +34,23 @@ class ReconAgent(BaseAgent):
             return self.subdomain_discovery()
         return self.dns_and_whois()
 
+    def _get(self, url, timeout=8):
+        """Unified requests-based GET with scope check"""
+        if not self.is_in_scope(url):
+            return None
+        try:
+            r = _SESSION.get(url, timeout=timeout, allow_redirects=False)
+            return r
+        except Exception:
+            return None
+
     def dns_and_whois(self):
-        self.logger.info(f"DNS lookup on {self.target}", "Recon")
-
-        # Scope check — main target is always in scope, but log it
         if not self.is_in_scope(self.target):
-            return f"Target {self.target} is out of scope — skipped"
+            return f"Target {self.target} out of scope — skipped"
 
+        self.logger.info(f"DNS lookup on {self.target}", "Recon")
         results = []
+
         try:
             ip = socket.gethostbyname(self.target)
             self.save_intel("dns", "ip", ip)
@@ -47,48 +66,49 @@ class ReconAgent(BaseAgent):
             self.logger.error(f"DNS failed: {e}", "Recon")
             return f"DNS failed: {e}"
 
+        # WHOIS — increased limit to 2000 chars (Fix 6)
         ok, whois_out = ToolManager.run("whois", [self.target], timeout=15)
         if ok and whois_out:
-            self.save_intel("whois", "raw", whois_out[:500])
+            self.save_intel("whois", "raw", whois_out[:2000])  # was 500
             for line in whois_out.splitlines():
-                for key in ["Registrar:", "Creation Date:", "Expiry Date:", "Name Server:"]:
+                for key in ["Registrar:", "Creation Date:", "Expiry Date:",
+                            "Name Server:", "Abuse Contact:"]:
                     if key.lower() in line.lower():
                         self.logger.info(line.strip(), "Recon")
                         results.append(line.strip())
 
-        # HTTP headers — scope checked
-        url = f"https://{self.target}"
-        if not self.is_in_scope(url):
-            return "\n".join(results)
+        # HTTP headers via requests (standardized - Fix 2)
+        for scheme in ("https", "http"):
+            url = f"{scheme}://{self.target}"
+            if not self.is_in_scope(url):
+                continue
+            resp = self._get(url)
+            if resp is None:
+                continue
+            server = resp.headers.get("Server", "")
+            powered = resp.headers.get("X-Powered-By", "")
+            if server:
+                self.save_intel("tech", "server", server)
+                self.logger.success(f"Server: {server}", "Recon")
+                results.append(f"Server: {server}")
+            if powered:
+                self.save_intel("tech", "powered_by", powered)
 
-        try:
-            req = urllib.request.Request(
-                url, headers={"User-Agent": "Mozilla/5.0 (RAJAN Scanner)"}
-            )
-            with urllib.request.urlopen(req, timeout=8) as resp:
-                server = resp.headers.get("Server", "")
-                powered = resp.headers.get("X-Powered-By", "")
-                if server:
-                    self.save_intel("tech", "server", server)
-                    self.logger.success(f"Server: {server}", "Recon")
-                    results.append(f"Server: {server}")
-                if powered:
-                    self.save_intel("tech", "powered_by", powered)
-
-                for h in ["X-Frame-Options", "Content-Security-Policy",
-                           "Strict-Transport-Security", "X-Content-Type-Options"]:
-                    if not resp.headers.get(h):
-                        self.add_finding(
-                            f"Missing Security Header: {h}", "LOW",
-                            f"HTTP response missing {h} header.",
-                            url, "", "T1190"
-                        )
-        except Exception as e:
-            self.logger.warning(f"HTTPS check failed: {e}", "Recon")
+            for h in ["X-Frame-Options", "Content-Security-Policy",
+                       "Strict-Transport-Security", "X-Content-Type-Options"]:
+                if h not in resp.headers:
+                    self.add_finding(
+                        f"Missing Security Header: {h}", "LOW",
+                        f"HTTP response missing {h} header.", url, "", "T1190"
+                    )
+            break  # got a response, stop trying schemes
 
         return "\n".join(results)
 
     def subdomain_discovery(self):
+        if not self.is_in_scope(self.target):
+            return f"Target {self.target} out of scope — skipped"
+
         self.logger.info(f"Subdomain discovery on {self.target}", "Recon")
         found = []
 
@@ -96,14 +116,10 @@ class ReconAgent(BaseAgent):
         if ok and out:
             for sub in out.splitlines():
                 sub = sub.strip()
-                if not sub:
-                    continue
-                # Scope check every discovered subdomain
-                if not self.is_in_scope(sub):
-                    continue
-                found.append(sub)
-                self.save_intel("subdomain", sub, "found")
-                self.logger.success(f"Subdomain: {sub}", "Recon")
+                if sub and self.is_in_scope(sub) and sub not in found:
+                    found.append(sub)
+                    self.save_intel("subdomain", sub, "found")
+                    self.logger.success(f"Subdomain: {sub}", "Recon")
 
         common = [
             "www", "mail", "ftp", "admin", "api", "dev", "staging",
@@ -112,7 +128,6 @@ class ReconAgent(BaseAgent):
         ]
         for prefix in common:
             full = f"{prefix}.{self.target}"
-            # Scope check before resolving
             if not self.is_in_scope(full):
                 continue
             try:

@@ -3,10 +3,13 @@ RAJAN OSINT Agent
 Google dorking, GitHub leaks, S3 bucket checks
 Scope-enforced: only runs on in-scope targets
 """
-import urllib.request
 import urllib.parse
+import requests
+import urllib3
 from agents.base import BaseAgent
 from tools.toolmanager import ToolManager
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class OSINTAgent(BaseAgent):
@@ -82,21 +85,17 @@ class OSINTAgent(BaseAgent):
             f"https://storage.googleapis.com/{domain_short}",
         ]
         for bucket_url in buckets:
-            # Scope check: cloud buckets are external — only check if target is in name
             if domain_short not in bucket_url:
                 continue
             try:
-                req = urllib.request.Request(
-                    bucket_url, headers={"User-Agent": "Mozilla/5.0"}
-                )
-                with urllib.request.urlopen(req, timeout=5) as r:
-                    body = r.read(500).decode("utf-8", errors="ignore")
-                    if "ListBucketResult" in body or "Contents" in body:
-                        self.add_finding(
-                            "Public S3 Bucket Exposed", "CRITICAL",
-                            f"S3 bucket publicly accessible and listing files.",
-                            bucket_url, "", "T1530"
-                        )
+                r = requests.get(bucket_url, timeout=5, verify=False)
+                body = r.text[:500]
+                if "ListBucketResult" in body or "Contents" in body:
+                    self.add_finding(
+                        "Public S3 Bucket Exposed", "CRITICAL",
+                        f"S3 bucket publicly accessible and listing files.",
+                        bucket_url, "", "T1530"
+                    )
             except Exception:
                 pass
         return "Cloud bucket check complete"

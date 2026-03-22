@@ -142,27 +142,36 @@ Always respond in a clear, structured way with findings marked by severity."""
         print(f"\n  ✅ Saved! RAJAN will use {provider['name']} with {model}")
         return True
 
-    def chat(self, messages, system=None):
-        """Send messages to LLM and get response"""
+    def chat(self, messages, system=None, retries=3):
+        """Send messages to LLM with retry + exponential backoff"""
         if not self.is_configured():
             return "❌ LLM not configured. Run RAJAN setup first."
 
         provider_id = self.config.get("provider", "1")
         system_prompt = system or self.SYSTEM_PROMPT
 
-        try:
-            if provider_id == "4":
-                return self._call_claude(messages, system_prompt)
-            elif provider_id == "5":
-                return self._call_huggingface(messages)
-            elif provider_id == "6":
-                return self._call_ollama(messages, system_prompt)
-            else:
-                return self._call_openai_compatible(messages, system_prompt)
-        except urllib.error.URLError as e:
-            return f"❌ Network error: {e.reason}. Check your connection."
-        except Exception as e:
-            return f"❌ LLM Error: {str(e)}"
+        last_error = ""
+        for attempt in range(retries):
+            try:
+                if provider_id == "4":
+                    return self._call_claude(messages, system_prompt)
+                elif provider_id == "5":
+                    return self._call_huggingface(messages)
+                elif provider_id == "6":
+                    return self._call_ollama(messages, system_prompt)
+                else:
+                    return self._call_openai_compatible(messages, system_prompt)
+            except urllib.error.URLError as e:
+                last_error = f"Network error: {e.reason}"
+            except Exception as e:
+                last_error = str(e)
+
+            if attempt < retries - 1:
+                wait = 2 ** attempt  # 1s, 2s, 4s backoff
+                import time as _t
+                _t.sleep(wait)
+
+        return f"❌ LLM failed after {retries} attempts: {last_error}"
 
     def _call_openai_compatible(self, messages, system_prompt):
         """Works for Groq, OpenAI, OpenRouter"""
