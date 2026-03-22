@@ -7,7 +7,7 @@
 ██║  ██║██║  ██║╚█████╔╝██║  ██║██║ ╚████║
 ╚═╝  ╚═╝╚═╝  ╚═╝ ╚════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝
 
-RAJAN — AI Ethical Hacking Agent v1.0.0
+RAJAN — AI Ethical Hacking Agent v1.1.0
 Your intelligent cybersecurity partner 😎
 github.com/DHRUVIL-5/RAJAN
 
@@ -38,7 +38,7 @@ BANNER = f"""
 ██║  ██║██║  ██║╚█████╔╝██║  ██║██║ ╚████║
 ╚═╝  ╚═╝╚═╝  ╚═╝ ╚════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝
 {Colors.RESET}{Colors.BOLD}
-    AI Ethical Hacking Agent v1.0.0
+    AI Ethical Hacking Agent v1.1.0
     github.com/DHRUVIL-5/RAJAN
 {Colors.RESET}{Colors.DIM}
     ⚠️  For AUTHORIZED use only!
@@ -166,8 +166,11 @@ class RAJAN:
             scope = args.scope or ""
             mode = "semi" if args.semi else "auto"
             if args.quick:
-                print(f"  ⚡ Quick mode enabled — critical checks only")
-            self._start_autonomous(args.target, scope, mode)
+                print(f"  ⚡ Quick mode enabled")
+            dry = getattr(args, 'dry_run', False)
+            if dry:
+                print(f"  🔍 DRY RUN mode — no real HTTP requests will be made")
+            self._start_autonomous(args.target, scope, mode, dry_run=dry)
             return
 
         # Default: interactive
@@ -409,18 +412,19 @@ class RAJAN:
 
         return target, scope, mode
 
-    def _start_autonomous(self, target, scope="", mode="auto"):
+    def _start_autonomous(self, target, scope="", mode="auto", dry_run=False):
         """Start autonomous hacking session"""
-        print(f"\n  {Colors.GREEN}RAJAN: Starting autonomous session on {Colors.BOLD}{target}{Colors.RESET}")
+        print(f"\n  {Colors.GREEN}RAJAN: Starting {'[DRY RUN] ' if dry_run else ''}autonomous session on {Colors.BOLD}{target}{Colors.RESET}")
         print(f"  {Colors.DIM}Scope: {scope or 'Full target'} | Mode: {mode}{Colors.RESET}")
-        print(f"\n  {Colors.YELLOW}💡 While I work, type ! commands to interact:{Colors.RESET}")
-        print(f"  {Colors.DIM}  !status  !stop  !resume  !report so far  !focus on [area]{Colors.RESET}\n")
+        if dry_run:
+            print(f"  {Colors.YELLOW}⚠️  Dry run — no real HTTP requests will be made{Colors.RESET}")
+        print(f"\n  {Colors.YELLOW}💡 Interrupt commands: !status !stop !focus on [area]{Colors.RESET}\n")
 
-        # Create session
         self.session_id = self.memory.create_session(target, scope)
         self.logger.session_id = self.session_id
         self.logger.memory = self.memory
         self.brain = Brain(self.memory, self.llm, self.logger, self.session_id)
+        self.brain.dry_run = dry_run
 
         # Start autonomous work in background thread
         self.autonomous_thread = threading.Thread(
@@ -571,6 +575,8 @@ def main():
                         help="Run vulnerability chain analysis on last session")
     parser.add_argument("--quick", action="store_true",
                         help="Quick scan mode — only critical checks")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Simulate scan without making real HTTP requests (scope/demo testing)")
 
     args = parser.parse_args()
 

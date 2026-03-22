@@ -233,7 +233,7 @@ def print_summary(env):
 def main():
     print("""
 ╔══════════════════════════════════════════════╗
-║         RAJAN Smart Installer v1.0          ║
+║         RAJAN Smart Installer v1.1          ║
 ║  Skips already-installed tools — fast!      ║
 ╚══════════════════════════════════════════════╝
 """)

@@ -46,6 +46,10 @@ class WebAgent(BaseAgent):
         url = f"{self.base_url}{path}"
         if not self.is_in_scope(url):
             return 0, "", {}
+        if self.dry_run:
+            self.logger.info(f"[DRY RUN] GET {url}", "Web")
+            return 200, "<html>dry-run</html>", {}
+        self._rate_limit()
         try:
             r = self._session.get(url, params=params, timeout=timeout,
                                    allow_redirects=False)
@@ -59,6 +63,10 @@ class WebAgent(BaseAgent):
         url = f"{self.base_url}{path}"
         if not self.is_in_scope(url):
             return 0, "", {}
+        if self.dry_run:
+            self.logger.info(f"[DRY RUN] POST {url}", "Web")
+            return 200, "", {}
+        self._rate_limit()
         try:
             r = self._session.post(url, data=data or {}, timeout=timeout,
                                     allow_redirects=False)

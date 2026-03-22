@@ -254,6 +254,9 @@ Always respond in a clear, structured way with findings marked by severity."""
             result = json.loads(resp.read().decode("utf-8"))
             return result["message"]["content"]
 
-    def quick_ask(self, question):
-        """Single question shortcut"""
-        return self.chat([{"role": "user", "content": question}])
+    def quick_ask(self, question, retries=3):
+        """Single question shortcut with retry"""
+        return self.chat(
+            [{"role": "user", "content": question}],
+            retries=retries
+        )

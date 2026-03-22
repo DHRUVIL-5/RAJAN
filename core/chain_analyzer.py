@@ -189,6 +189,51 @@ class ChainAnalyzer:
         self.session_id = session_id
         self.mitre = MITREMapper()
 
+    def _boost_chain_findings(self, findings, chain):
+        """
+        When a chain is confirmed, boost the severity of its constituent findings.
+        Medium + Medium forming a Critical chain → both get boosted to High minimum.
+        This makes the real impact visible in the report.
+        """
+        sev_rank = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
+        chain_rank = sev_rank.get(chain["impact"], 3)
+        boost_to = "HIGH" if chain_rank >= 3 else "MEDIUM"
+
+        for finding in findings:
+            title_lower = finding.get("title", "").lower()
+            desc_lower = finding.get("description", "").lower()
+            combined = title_lower + " " + desc_lower
+
+            # Check if this finding is part of the chain
+            is_member = any(req in combined for req in chain["requires"])
+            if not is_member:
+                continue
+
+            current_sev = finding.get("severity", "LOW")
+            if sev_rank.get(current_sev, 0) < sev_rank.get(boost_to, 0):
+                # Update in DB
+                try:
+                    self.memory.conn.execute(
+                        "UPDATE findings SET severity=?, description=? "
+                        "WHERE id=? AND session_id=?",
+                        (
+                            boost_to,
+                            finding["description"] +
+                            f"\n[Chain Boost] Severity elevated to {boost_to} "
+                            f"because this finding is part of chain: '{chain['name']}'",
+                            finding["id"],
+                            self.session_id
+                        )
+                    )
+                    self.memory.conn.commit()
+                    self.logger.info(
+                        f"Chain boost: '{finding['title']}' "
+                        f"{current_sev}→{boost_to} (chain: {chain['name']})",
+                        "ChainAnalyzer"
+                    )
+                except Exception:
+                    pass
+
     def analyze(self):
         """
         Main entry point — analyze all findings and find chains
@@ -218,6 +263,8 @@ class ChainAnalyzer:
                     chain["impact"],
                     f"Requires: {', '.join(chain['requires'])}"
                 )
+                # Boost severity of constituent findings in the chain
+                self._boost_chain_findings(findings, chain)
 
         # AI-powered chain discovery — finds chains not in hardcoded list
         finding_summary = [

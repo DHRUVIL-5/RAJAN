@@ -39,6 +39,7 @@ class Brain:
         self.scoring = ScoringEngine()
         self.agent_bus = {}      # Agent-to-Agent shared message bus
         self.feedback_cycle = 0  # Re-plan cycles completed
+        self.dry_run = False     # Dry run — no real HTTP requests
 
     # ── Autonomous Session ────────────────────────────────────
 
@@ -71,6 +72,7 @@ class Brain:
             a.scope = self.scope
             a.agent_bus = self.agent_bus
             a.scoring = self.scoring
+            a.dry_run = getattr(self, 'dry_run', False)
             return a
 
         agent_map = {
@@ -261,27 +263,33 @@ class Brain:
     # ── Live Visualization ────────────────────────────────────
 
     def _render_progress(self, target, stats, findings_count=0):
-        """ASCII progress visualization — shows task tree state live"""
-        from core.logger import Colors
-        total = stats.get("total", 1)
-        done = stats.get("done", 0)
-        failed = stats.get("failed", 0)
-        pct = int((done / total) * 100) if total else 0
-        bar_len = 30
-        filled = int(bar_len * pct / 100)
-        bar = f"{'█' * filled}{'░' * (bar_len - filled)}"
-
-        current = self.current_task.name[:35] if self.current_task else "waiting..."
-        agent_states = []
-        for ag, result in self.agent_bus.items():
-            agent_states.append(f"{ag}✓")
-
-        print(
-            f"\r{Colors.DIM}[{bar}] {pct}% | "
-            f"✅{done} ❌{failed} 🔴{findings_count} | "
-            f"▶ {current[:30]}{Colors.RESET}",
-            end="", flush=True
-        )
+        """
+        Clean progress display using rich — works on narrow Termux screens.
+        No \r carriage return — avoids garbled output on screen wrap.
+        """
+        try:
+            from rich.console import Console
+            from rich.text import Text
+            console = Console()
+            total = stats.get("total", 1)
+            done = stats.get("done", 0)
+            failed = stats.get("failed", 0)
+            pct = int((done / total) * 100) if total else 0
+            bar_len = 20
+            filled = "█" * int(bar_len * pct / 100)
+            empty = "░" * (bar_len - len(filled))
+            current = (self.current_task.name[:28] + "…") \
+                      if self.current_task and len(self.current_task.name) > 28 \
+                      else (self.current_task.name if self.current_task else "waiting")
+            line = (f"[{filled}{empty}] {pct}% "
+                    f"✅{done} ❌{failed} 🔴{findings_count} ▶ {current}")
+            console.print(line, end="\n", highlight=False)
+        except ImportError:
+            # Fallback if rich not installed
+            total = stats.get("total", 1)
+            done = stats.get("done", 0)
+            pct = int((done / total) * 100) if total else 0
+            print(f"  [{pct}%] {done}/{total} tasks | findings: {findings_count}")
 
     # ── Interrupt Chat ────────────────────────────────────────
 
@@ -359,10 +367,19 @@ class Brain:
     def _reprioritize(self, keyword):
         if not self.task_tree:
             return
+        count = 0
         for t in self.task_tree.tasks:
             if keyword in t.name.lower() or keyword in t.agent.lower():
                 t.priority = 1
-        self.logger.success(f"'{keyword}' tasks moved to top priority!", "Brain")
+                count += 1
+        # Persist to SQLite so it survives session resume
+        try:
+            self.memory.save_priority(self.session_id, keyword, 1)
+        except Exception:
+            pass
+        self.logger.success(
+            f"'{keyword}' tasks moved to top priority! ({count} tasks boosted)", "Brain"
+        )
 
     def _notify_done(self, target, findings):
         self.notifier.notify(

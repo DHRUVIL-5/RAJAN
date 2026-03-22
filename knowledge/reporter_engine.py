@@ -346,7 +346,7 @@ def generate_markdown_report(session, findings, intel, counts, llm=None):
 
 ---
 
-*RAJAN v1.0.0 — AI Ethical Hacking Agent*
+*RAJAN v1.1.0 — AI Ethical Hacking Agent*
 *github.com/DHRUVIL-5/RAJAN | Generated: {date}*
 """
     return md

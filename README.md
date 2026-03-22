@@ -11,7 +11,7 @@
 
 ### AI-Powered Ethical Hacking Agent
 
-[![Version](https://img.shields.io/badge/Version-1.0.0-blue?style=for-the-badge)]()
+[![Version](https://img.shields.io/badge/Version-1.1.0-blue?style=for-the-badge)]()
 [![Python](https://img.shields.io/badge/Python-3.8+-green?style=for-the-badge&logo=python)]()
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)]()
 [![Platform](https://img.shields.io/badge/Termux%20%7C%20Kali%20%7C%20Linux%20%7C%20macOS%20%7C%20Windows-red?style=for-the-badge)]()

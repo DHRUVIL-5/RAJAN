@@ -35,9 +35,10 @@ class ReconAgent(BaseAgent):
         return self.dns_and_whois()
 
     def _get(self, url, timeout=8):
-        """Unified requests-based GET with scope check"""
+        """Unified requests-based GET with scope check + rate limiting"""
         if not self.is_in_scope(url):
             return None
+        self._rate_limit()
         try:
             r = _SESSION.get(url, timeout=timeout, allow_redirects=False)
             return r

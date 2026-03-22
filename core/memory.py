@@ -75,6 +75,14 @@ class Memory:
                 found_at TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS task_priorities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT,
+                keyword TEXT,
+                priority INTEGER,
+                set_at TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT,
@@ -251,6 +259,23 @@ class Memory:
     def get_logs(self, session_id):
         cur = self.conn.execute(
             "SELECT level,agent,message,timestamp FROM logs WHERE session_id=? ORDER BY id",
+            (session_id,)
+        )
+        return cur.fetchall()
+
+    def save_priority(self, session_id, keyword, priority):
+        """Persist !focus on reprioritization so it survives resume"""
+        now = datetime.datetime.now().isoformat()
+        self.conn.execute(
+            "INSERT INTO task_priorities (session_id,keyword,priority,set_at) VALUES (?,?,?,?)",
+            (session_id, keyword.lower(), priority, now)
+        )
+        self.conn.commit()
+
+    def get_priorities(self, session_id):
+        """Restore saved priorities when resuming a session"""
+        cur = self.conn.execute(
+            "SELECT keyword, priority FROM task_priorities WHERE session_id=? ORDER BY id",
             (session_id,)
         )
         return cur.fetchall()

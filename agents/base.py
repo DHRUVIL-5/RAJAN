@@ -1,7 +1,10 @@
 """
 RAJAN Base Agent
 All specialized agents inherit from this
+Includes: scope enforcement, scoring, rate limiting, agent bus
 """
+
+import time
 
 
 class BaseAgent:
@@ -16,6 +19,22 @@ class BaseAgent:
         self.scope = None
         self.agent_bus = {}
         self.scoring = None
+        # Per-agent rate limiting — prevents ban on HackerOne/Intigriti
+        self.request_delay = 1.0   # seconds between HTTP requests
+        self.last_request_time = 0.0
+        # Dry run mode — simulate without making real HTTP requests
+        self.dry_run = False
+
+    def _rate_limit(self):
+        """Enforce minimum delay between requests — avoids triggering WAFs/bans"""
+        elapsed = time.time() - self.last_request_time
+        if elapsed < self.request_delay:
+            time.sleep(self.request_delay - elapsed)
+        self.last_request_time = time.time()
+
+    def set_rate_limit(self, delay_seconds):
+        """Allow brain/user to adjust rate limit per session"""
+        self.request_delay = delay_seconds
 
     def run_task(self, task_name):
         raise NotImplementedError
