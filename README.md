@@ -38,7 +38,7 @@ It runs entirely from the command line — on your Android phone via Termux, on 
 ## ✨ Features
 
 ### 🤖 Autonomous Operation
-RAJAN works completely on its own once you give it a target. It builds a 19-task plan, executes each task in the correct order, adapts when it discovers new information (e.g. if it finds a new subdomain, it adds it to the queue), and notifies you when it's done. Sessions can run for hours unattended.
+RAJAN works completely on its own once you give it a target. It builds a plan, executes each task in the correct dependency order, and dynamically re-plans based on what it discovers. After every few completed tasks, RAJAN analyzes its own results and asks its AI brain whether new tests should be added — so if it discovers a WordPress install halfway through, it automatically adds WordPress-specific CVE checks to the queue. Sessions can run for hours unattended.
 
 ### 🗣️ Natural Language Interface
 You don't need to memorize flags or commands. Just type what you want:
@@ -54,21 +54,28 @@ RAJAN understands your intent and routes it to the right module automatically.
 While RAJAN is running an autonomous scan, you can still talk to it at any time by prefixing your message with `!`. Ask it questions, redirect its focus, check progress, or pause it — all without stopping the scan.
 
 ### ⛓️ Vulnerability Chain Analyzer
-This is what separates junior bug hunters from seniors — finding how multiple low-to-medium vulnerabilities **chain together** for critical impact. RAJAN automatically analyzes all discoveries and identifies attack chains. For example: SSRF + Cloud Metadata = credential theft. XSS + Missing HTTPOnly = session hijacking. `.git` exposed + hardcoded secrets = full source code and credentials leak.
+This is what separates junior bug hunters from seniors — finding how multiple low-to-medium vulnerabilities **chain together** for critical impact. RAJAN automatically analyzes all discoveries and identifies attack chains. For example: SSRF + Cloud Metadata = credential theft. XSS + Missing HTTPOnly = session hijacking. `.git` exposed + hardcoded secrets = full source code and credentials leak. No other open-source ethical hacking agent does this automatically.
 
-No other open-source ethical hacking agent does this automatically.
+### 🎯 Hard Scope Enforcement
+RAJAN strictly enforces the scope you define. If you set `--scope *.example.com`, every single agent checks every URL and hostname before making a request — out-of-scope targets are hard-blocked and logged. This is critical for bug bounty work where testing out-of-scope can get you banned from platforms like HackerOne. Wildcard patterns, subdomain matching, and full URL parsing are all supported.
+
+### 📊 Confidence & Scoring System
+Every vulnerability finding RAJAN reports includes a CVSS-style severity score, a confidence percentage (0–100%), and a reliability rating. Findings confirmed with a proof-of-concept get boosted confidence. Potential findings without evidence get flagged as low confidence for manual review. This eliminates false positives and makes reports immediately actionable for real-world use.
+
+### 🤝 Agent-to-Agent Communication
+RAJAN's specialized agents don't just take orders from a central controller — they share intelligence with each other through a message bus. When the recon agent discovers subdomains, it publishes them directly to the scanner and web agents. When the scanner finds open ports, the exploit agent is notified automatically. This makes the system feel alive and surfaces connections that a sequential approach would miss.
 
 ### 📺 Live Log System
-Every action RAJAN takes is printed to the terminal in real time with timestamps, color-coded severity levels, and agent labels. You can watch exactly what it's doing, what commands it's running, and what it found — like watching a skilled hacker work live on your screen.
+Every action RAJAN takes is printed to the terminal in real time with timestamps, color-coded severity levels, and agent labels — plus a live inline progress bar showing tasks completed, findings discovered, and what's currently running. You can watch exactly what it's doing at any moment.
 
 ### 🎬 Session Replay
 Replay any past session at any speed. Great for reviewing what happened, learning from the methodology, or demonstrating findings to a client or team.
 
 ### 💾 Persistent Memory
-Everything is stored in a local SQLite database. Sessions survive crashes, phone restarts, and connection drops. Resume any interrupted session with a single command. RAJAN never repeats work it has already done.
+Everything is stored in a local SQLite database using WAL (Write-Ahead Logging) mode — which prevents locking issues during heavy multi-threaded scans, especially on Termux. Sessions survive crashes, phone restarts, and connection drops. Resume any interrupted session with a single command. RAJAN never repeats work it has already done.
 
 ### 📊 Professional Reports
-Auto-generated reports in both Markdown and HTML with a dark professional theme. Includes executive summary (AI-written), risk summary table, full finding details with MITRE mappings and remediation advice, and intelligence gathered. Ready to send to clients or submit to bug bounty platforms.
+Auto-generated reports in both Markdown and HTML with a dark professional theme. Includes executive summary (AI-written), risk summary table, full finding details with MITRE mappings, confidence scores, and remediation advice. Ready to send to clients or submit to bug bounty platforms.
 
 ### 📦 Multi-Format Export
 Export findings as JSON (for automation), CSV (for spreadsheet analysis), plain TXT (paste anywhere), or pre-formatted HackerOne/Bugcrowd submission templates. All formats in one command.
@@ -128,7 +135,7 @@ Just start RAJAN and talk to it. It understands natural language.
 # Full autonomous scan
 python3 rajan.py --target example.com
 
-# With scope restriction
+# With scope restriction (enforced across all agents)
 python3 rajan.py --target example.com --scope "*.example.com"
 
 # Ask before each task (learning mode)
@@ -138,7 +145,7 @@ python3 rajan.py --target example.com --semi
 ### While RAJAN Works — Interrupt Commands
 Type these anytime during an autonomous scan (no need to stop it):
 ```
-!status          → Current progress, tasks done, findings so far
+!status          → Progress, tasks done, findings, active agents, re-plan cycles
 !stop            → Pause the scan
 !resume          → Continue after pause
 !report so far   → Show all findings discovered so far
@@ -156,6 +163,8 @@ what is SQL injection?
 explain SSRF with examples
 cve log4j
 cve CVE-2021-44228
+cve confluence
+cve moveit
 payloads xss
 payloads sqli
 payloads ssrf
@@ -180,7 +189,7 @@ selftest
 
 ## 🧠 Autonomous Task Flow
 
-When you start a scan, RAJAN builds and executes a 19-task plan in the correct dependency order:
+When you start a scan, RAJAN builds and executes a task plan in the correct dependency order. The plan is not static — as results come in, the AI brain analyzes discoveries and dynamically injects follow-up tasks:
 
 ```
 Reconnaissance
@@ -190,7 +199,7 @@ Reconnaissance
   └─ GitHub / GitLab code leak search
 
 Scanning & Fingerprinting
-  ├─ Port scan (20+ common ports, threaded)
+  ├─ Port scan (20+ common ports, multithreaded)
   ├─ Service and version detection (nmap)
   └─ Web technology fingerprinting
 
@@ -206,7 +215,7 @@ Web Application Testing
   ├─ CSRF — Form token validation
   ├─ Authentication bypass — Default credentials
   ├─ JavaScript file analysis — API keys, tokens, secrets
-  └─ SSL/TLS configuration — Ciphers, versions, expiry
+  └─ SSL/TLS — Ciphers, versions, certificate expiry
 
 Exploit Research
   ├─ CVE matching against detected technology versions
@@ -219,8 +228,11 @@ Cloud Security
 Vulnerability Chain Analysis
   └─ Automatically identifies how findings combine for higher impact
 
+Dynamic Re-planning (Feedback Loop)
+  └─ LLM analyzes results every few tasks and injects new tests if needed
+
 Report Generation
-  └─ HTML + Markdown professional report
+  └─ HTML + Markdown professional report with confidence scores
 ```
 
 ---
@@ -238,13 +250,14 @@ RAJAN ships with a built-in offline knowledge base — no internet required for 
 [RAJAN]> mitre credential access
 ```
 
-### 🐛 CVE Database (Offline)
-19 critical CVEs stored locally — works with no internet. Covers: Log4Shell, Spring4Shell, EternalBlue, BlueKeep, SMBGhost, Heartbleed, Shellshock, Ghostcat, Drupalgeddon, WordPress RCE, Grafana Path Traversal, GitLab RCE, Redis Sandbox Escape, and more.
+### 🐛 CVE Database (Offline + Live)
+37 CVEs stored locally — works with no internet. When a CVE isn't in the local database, RAJAN automatically falls back to a live NVD API lookup. Local coverage includes: Log4Shell, Spring4Shell, EternalBlue, BlueKeep, SMBGhost, Heartbleed, Shellshock, Ghostcat, Drupalgeddon, WordPress RCE, Grafana Path Traversal, GitLab RCE, Confluence RCE, Exchange ProxyLogon/ProxyShell, Citrix ADC, Pulse Secure, VMware vCenter, F5 BIG-IP, Fortinet Auth Bypass, MOVEit SQLi, PaperCut RCE, Kubernetes privilege escalation, Jenkins RCE, Apache Struts, WebLogic, and more.
 
 ```
 [RAJAN]> cve log4j
-[RAJAN]> cve CVE-2021-44228
-[RAJAN]> cve wordpress
+[RAJAN]> cve CVE-2022-26134
+[RAJAN]> cve confluence
+[RAJAN]> cve moveit
 ```
 
 ### 💣 Payload Library
@@ -269,7 +282,7 @@ Complete checklists for web app and network pentesting across 6 phases (Recon, S
 
 ## 🔌 LLM Support
 
-RAJAN works with any of these providers — you choose during first run:
+RAJAN works with any of these providers — you choose during first run. RAJAN tests your API connection at startup to catch bad keys or wrong model names before a scan begins.
 
 | Provider | Free | Speed | Best For |
 |----------|------|-------|----------|
@@ -289,7 +302,7 @@ Switch providers anytime: `python3 rajan.py --setup`
 ```bash
 python3 rajan.py                              # Interactive NLP mode
 python3 rajan.py --target <domain/IP>         # Start autonomous scan
-python3 rajan.py --target t.com --scope "*.t.com"  # With scope
+python3 rajan.py --target t.com --scope "*.t.com"  # With scope enforcement
 python3 rajan.py --target t.com --semi        # Semi-auto (approve each task)
 python3 rajan.py --target t.com --quick       # Quick mode (critical checks only)
 python3 rajan.py --setup                      # Configure LLM provider
@@ -317,25 +330,27 @@ RAJAN/
 ├── setup.py                   ← Smart installer (Termux / Kali / Ubuntu / macOS / Windows)
 │
 ├── core/
-│   ├── brain.py               ← ReACT autonomous engine (Reason → Act → Observe → Learn)
-│   ├── llm.py                 ← Multi-LLM connector (6 providers)
-│   ├── memory.py              ← SQLite persistent memory (sessions, findings, intel, logs)
-│   ├── logger.py              ← Live colored terminal log system with timestamps
-│   ├── task_tree.py           ← 19-task autonomous planning and dependency engine
-│   ├── chain_analyzer.py      ← Vulnerability chain discovery (10 known chains + AI)
+│   ├── brain.py               ← ReACT engine with feedback loop + agent-to-agent comms
+│   ├── llm.py                 ← Multi-LLM connector (6 providers, connectivity verified)
+│   ├── memory.py              ← SQLite persistent memory (WAL mode, thread-safe)
+│   ├── logger.py              ← Live colored terminal log system with progress bar
+│   ├── task_tree.py           ← Task planning, dependency resolution, dynamic injection
+│   ├── scope.py               ← Hard scope enforcer (wildcard + subdomain matching)
+│   ├── scoring.py             ← Confidence + CVSS scoring on every finding
+│   ├── chain_analyzer.py      ← Vulnerability chain discovery (10 known + AI-powered)
 │   ├── config.py              ← Persistent user configuration system
 │   ├── exporter.py            ← Multi-format export (JSON, CSV, TXT, HackerOne)
 │   ├── notifier.py            ← Termux push + terminal bell + email notifications
 │   ├── replay.py              ← Session replay at variable speed
-│   └── selftest.py            ← 15-check self-test + version update checker
+│   └── selftest.py            ← 15-check self-test including LLM connectivity
 │
 ├── agents/
-│   ├── base.py                ← Base agent class (shared methods)
+│   ├── base.py                ← Base agent (scope enforcement + scoring built in)
 │   ├── recon.py               ← DNS, WHOIS, subdomain discovery, security header analysis
 │   ├── scanner.py             ← Multithreaded port scanner with risk assessment
 │   ├── web.py                 ← XSS, SQLi, IDOR, SSRF, LFI, SSTI, CSRF, Auth, SSL, JS
 │   ├── osint.py               ← Google dorking, GitHub leaks, S3 bucket checks
-│   ├── exploit.py             ← CVE matching, known vulnerability research
+│   ├── exploit.py             ← CVE matching against 37 known vulnerabilities
 │   ├── cloud.py               ← Cloud misconfiguration detection
 │   └── reporter.py            ← HTML + Markdown professional report generation
 │
@@ -344,14 +359,14 @@ RAJAN/
 │
 ├── knowledge/
 │   ├── mitre.py               ← MITRE ATT&CK database (21 techniques)
-│   ├── cve_db.py              ← Offline CVE database (19 critical CVEs)
+│   ├── cve_db.py              ← Offline CVE database (37 CVEs + NVD live fallback)
 │   ├── payloads.py            ← Payload library (10 categories, 80+ payloads)
 │   ├── methodology.py         ← Bug bounty checklists + platform guides
 │   └── reporter_engine.py     ← HTML dark-theme + Markdown report templates
 │
-├── memory/                    ← Auto-created: sessions, config, LLM settings
+├── memory/                    ← Auto-created: sessions, config, LLM settings (WAL mode)
 ├── reports/                   ← Auto-created: all generated reports and exports
-└── logs/                      ← Auto-created: session log files
+└── logs/                      ← Auto-created: full session log files
 ```
 
 ---
