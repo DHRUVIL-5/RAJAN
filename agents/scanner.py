@@ -1,6 +1,7 @@
 """
 RAJAN Scanner Agent
 Port scanning and service detection
+Scope-enforced: every target IP/host verified before scanning
 """
 
 import socket
@@ -25,14 +26,18 @@ class ScannerAgent(BaseAgent):
     }
 
     def run_task(self, task_name):
-        task_lower = task_name.lower()
-        if "port" in task_lower:
+        tl = task_name.lower()
+        if "port" in tl:
             return self.port_scan()
-        elif "service" in task_lower or "version" in task_lower:
+        elif "service" in tl or "version" in tl:
             return self.service_detection()
         return self.port_scan()
 
     def port_scan(self):
+        # Scope check before scanning anything
+        if not self.is_in_scope(self.target):
+            return f"Target {self.target} out of scope — scan blocked"
+
         self.logger.info(f"Port scanning {self.target}", "Scanner")
         open_ports = []
         lock = threading.Lock()
@@ -41,8 +46,7 @@ class ScannerAgent(BaseAgent):
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(1.5)
-                result = sock.connect_ex((self.target, port))
-                if result == 0:
+                if sock.connect_ex((self.target, port)) == 0:
                     service = self.COMMON_PORTS.get(port, "Unknown")
                     with lock:
                         open_ports.append((port, service))
@@ -50,10 +54,9 @@ class ScannerAgent(BaseAgent):
             except Exception:
                 pass
 
-        threads = []
-        for port in self.COMMON_PORTS:
-            t = threading.Thread(target=scan_port, args=(port,))
-            threads.append(t)
+        threads = [threading.Thread(target=scan_port, args=(p,))
+                   for p in self.COMMON_PORTS]
+        for t in threads:
             t.start()
         for t in threads:
             t.join()
@@ -64,17 +67,17 @@ class ScannerAgent(BaseAgent):
             self.logger.success(f"Port {port}/tcp OPEN — {service}", "Scanner")
             self._check_port_risk(port, service)
 
-        return f"Open ports: {[p for p,s in open_ports]}"
+        return f"Open ports: {[p for p, s in open_ports]}"
 
     def _check_port_risk(self, port, service):
         risky = {
-            21: ("FTP open — check for anonymous login", "MEDIUM", "T1190"),
-            23: ("Telnet open — unencrypted protocol!", "HIGH", "T1021.004"),
-            445: ("SMB open — check for EternalBlue/PrintNightmare", "HIGH", "T1021.002"),
-            3389: ("RDP open — brute force & BlueKeep risk", "HIGH", "T1021.001"),
-            6379: ("Redis open — check if auth required", "HIGH", "T1190"),
+            21:    ("FTP open — check for anonymous login", "MEDIUM", "T1190"),
+            23:    ("Telnet open — unencrypted protocol!", "HIGH", "T1021.004"),
+            445:   ("SMB open — check for EternalBlue/PrintNightmare", "HIGH", "T1021.002"),
+            3389:  ("RDP open — brute force & BlueKeep risk", "HIGH", "T1021.001"),
+            6379:  ("Redis open — check if auth required", "HIGH", "T1190"),
             27017: ("MongoDB open — check if auth required", "HIGH", "T1190"),
-            9200: ("Elasticsearch open — check if auth required", "HIGH", "T1190"),
+            9200:  ("Elasticsearch open — check if auth required", "HIGH", "T1190"),
         }
         if port in risky:
             msg, severity, mitre = risky[port]
@@ -85,7 +88,10 @@ class ScannerAgent(BaseAgent):
             )
 
     def service_detection(self):
-        self.logger.info("Service & version detection via nmap", "Scanner")
+        if not self.is_in_scope(self.target):
+            return f"Target {self.target} out of scope — skipped"
+
+        self.logger.info("Service & version detection", "Scanner")
         ports = self.memory.get_intel(self.session_id, "port")
         if not ports:
             return "No open ports in memory yet"

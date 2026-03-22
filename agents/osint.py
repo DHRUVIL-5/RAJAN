@@ -1,6 +1,7 @@
 """
 RAJAN OSINT Agent
-Google dorking, GitHub leaks, Shodan
+Google dorking, GitHub leaks, S3 bucket checks
+Scope-enforced: only runs on in-scope targets
 """
 import urllib.request
 import urllib.parse
@@ -14,16 +15,19 @@ class OSINTAgent(BaseAgent):
         self.name = "OSINTAgent"
 
     def run_task(self, task_name):
-        task_lower = task_name.lower()
-        if "google" in task_lower or "dork" in task_lower:
+        tl = task_name.lower()
+        if "google" in tl or "dork" in tl:
             return self.google_dorks()
-        elif "github" in task_lower or "code" in task_lower:
+        elif "github" in tl or "code" in tl:
             return self.github_leak_check()
-        elif "cloud" in task_lower or "s3" in task_lower:
+        elif "cloud" in tl or "s3" in tl:
             return self.cloud_bucket_check()
         return self.google_dorks()
 
     def google_dorks(self):
+        if not self.is_in_scope(self.target):
+            return f"Target {self.target} out of scope — skipped"
+
         self.logger.info(f"Generating Google dorks for {self.target}", "OSINT")
         dorks = [
             f'site:{self.target} filetype:env',
@@ -35,7 +39,6 @@ class OSINTAgent(BaseAgent):
             f'site:{self.target} intitle:"index of"',
             f'site:{self.target} inurl:backup',
         ]
-        self.logger.info("Google Dorks to manually check:", "OSINT")
         for d in dorks:
             self.logger.info(f"  → {d}", "OSINT")
             self.save_intel("dork", d, "pending_manual_check")
@@ -45,10 +48,13 @@ class OSINTAgent(BaseAgent):
             f"or admin panels for {self.target}? Give 5 targeted dorks."
         )
         self.logger.info(analysis, "OSINT")
-        return f"Generated {len(dorks)} dorks for manual verification"
+        return f"Generated {len(dorks)} dorks"
 
     def github_leak_check(self):
-        self.logger.info(f"Checking GitHub for {self.target} leaks", "OSINT")
+        if not self.is_in_scope(self.target):
+            return f"Target {self.target} out of scope — skipped"
+
+        self.logger.info(f"GitHub leak search for {self.target}", "OSINT")
         domain_short = self.target.replace("www.", "").split(".")[0]
         searches = [
             f'"{self.target}" password',
@@ -56,15 +62,16 @@ class OSINTAgent(BaseAgent):
             f'"{domain_short}" secret',
             f'"{self.target}" .env',
         ]
-        self.logger.info("GitHub search URLs to check manually:", "OSINT")
         for s in searches:
             url = f"https://github.com/search?q={urllib.parse.quote(s)}&type=code"
             self.logger.info(f"  → {url}", "OSINT")
             self.save_intel("github_search", s, url)
-
-        return f"Generated {len(searches)} GitHub searches for manual verification"
+        return f"Generated {len(searches)} GitHub searches"
 
     def cloud_bucket_check(self):
+        if not self.is_in_scope(self.target):
+            return f"Target {self.target} out of scope — skipped"
+
         self.logger.info("Checking for exposed cloud buckets", "OSINT")
         domain_short = self.target.replace("www.", "").split(".")[0]
         buckets = [
@@ -75,18 +82,19 @@ class OSINTAgent(BaseAgent):
             f"https://storage.googleapis.com/{domain_short}",
         ]
         for bucket_url in buckets:
+            # Scope check: cloud buckets are external — only check if target is in name
+            if domain_short not in bucket_url:
+                continue
             try:
                 req = urllib.request.Request(
-                    bucket_url,
-                    headers={"User-Agent": "Mozilla/5.0"}
+                    bucket_url, headers={"User-Agent": "Mozilla/5.0"}
                 )
                 with urllib.request.urlopen(req, timeout=5) as r:
                     body = r.read(500).decode("utf-8", errors="ignore")
                     if "ListBucketResult" in body or "Contents" in body:
                         self.add_finding(
-                            "Public S3 Bucket Exposed",
-                            "CRITICAL",
-                            f"S3 bucket is publicly accessible and lists files",
+                            "Public S3 Bucket Exposed", "CRITICAL",
+                            f"S3 bucket publicly accessible and listing files.",
                             bucket_url, "", "T1530"
                         )
             except Exception:

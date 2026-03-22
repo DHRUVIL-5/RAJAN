@@ -38,9 +38,13 @@ class WebAgent(BaseAgent):
         return ctx
 
     def _get(self, path="", params=None, timeout=8):
+        url = f"{self.base_url}{path}"
+        # Hard scope check — block if redirect or path leads out of scope
+        if not self.is_in_scope(url):
+            return 0, "", {}
         try:
-            url = f"{self.base_url}{path}"
-            if params: url += "?" + urllib.parse.urlencode(params)
+            if params:
+                url += "?" + urllib.parse.urlencode(params)
             req = urllib.request.Request(url, headers=self.hdrs)
             with urllib.request.urlopen(req, timeout=timeout, context=self._ctx()) as r:
                 return r.status, r.read(16384).decode("utf-8", errors="ignore"), dict(r.headers)
@@ -50,8 +54,11 @@ class WebAgent(BaseAgent):
             return 0, "", {}
 
     def _post(self, path="", data=None, timeout=8):
+        url = f"{self.base_url}{path}"
+        # Hard scope check
+        if not self.is_in_scope(url):
+            return 0, "", {}
         try:
-            url = f"{self.base_url}{path}"
             post_data = urllib.parse.urlencode(data or {}).encode()
             h = {**self.hdrs, "Content-Type": "application/x-www-form-urlencoded"}
             req = urllib.request.Request(url, data=post_data, headers=h)

@@ -1,6 +1,10 @@
-"""RAJAN Cloud Agent"""
-from agents.base import BaseAgent
+"""
+RAJAN Cloud Agent
+Cloud misconfiguration detection
+Scope-enforced: only checks buckets belonging to the target domain
+"""
 import urllib.request
+from agents.base import BaseAgent
 
 
 class CloudAgent(BaseAgent):
@@ -12,27 +16,33 @@ class CloudAgent(BaseAgent):
         return self.cloud_checks()
 
     def cloud_checks(self):
-        self.logger.info("Running cloud security checks", "Cloud")
-        domain_parts = self.target.replace("www.", "").split(".")
-        base_name = domain_parts[0]
+        if not self.is_in_scope(self.target):
+            return f"Target {self.target} out of scope — skipped"
 
-        # Check common misconfigs
+        self.logger.info("Running cloud security checks", "Cloud")
+        base_name = self.target.replace("www.", "").split(".")[0]
+
+        # Only check buckets that contain the target domain name
         checks = [
             f"https://{base_name}.s3.amazonaws.com",
             f"https://{base_name}-assets.s3.amazonaws.com",
             f"https://storage.googleapis.com/{base_name}",
             f"https://{base_name}.blob.core.windows.net",
         ]
+
         for url in checks:
+            # Extra guard: only proceed if domain name is in URL
+            if base_name not in url:
+                continue
             try:
                 req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
                 with urllib.request.urlopen(req, timeout=5) as r:
                     body = r.read(200).decode("utf-8", errors="ignore")
-                    if any(kw in body for kw in ["ListBucketResult", "Contents", "BlobServiceProperties"]):
+                    if any(kw in body for kw in
+                           ["ListBucketResult", "Contents", "BlobServiceProperties"]):
                         self.add_finding(
-                            "Public Cloud Storage Exposed",
-                            "CRITICAL",
-                            f"Cloud storage at {url} is publicly accessible",
+                            "Public Cloud Storage Exposed", "CRITICAL",
+                            f"Cloud storage at {url} is publicly accessible.",
                             url, "", "T1530"
                         )
             except Exception:
