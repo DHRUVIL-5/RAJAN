@@ -19,6 +19,9 @@ class Memory:
 
     def _init_tables(self):
         cursor = self.conn.cursor()
+        # WAL mode — prevents locking issues on heavy concurrent scans (critical for Termux)
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.executescript("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

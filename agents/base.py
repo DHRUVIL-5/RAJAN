@@ -12,18 +12,38 @@ class BaseAgent:
         self.session_id = session_id
         self.target = target
         self.name = "BaseAgent"
+        # Injected by Brain at runtime
+        self.scope = None
+        self.agent_bus = {}
+        self.scoring = None
 
     def run_task(self, task_name):
-        """Override this in each agent"""
         raise NotImplementedError
 
+    def is_in_scope(self, url_or_host):
+        """Hard scope check — returns False and logs if out of scope"""
+        if self.scope is None:
+            return True  # No scope set — allow all
+        return self.scope.check(url_or_host, self.logger, self.name)
+
     def add_finding(self, title, severity, description, location="", proof="", mitre=""):
-        """Save a confirmed finding"""
+        """Save a confirmed finding with confidence scoring"""
+        # Enrich with confidence score if scoring engine available
+        if self.scoring:
+            enriched = self.scoring.enrich_finding(
+                title, severity, description, proof, has_poc=bool(proof)
+            )
+            final_severity = enriched["severity"]
+            final_proof = enriched["proof"]
+        else:
+            final_severity = severity
+            final_proof = proof
+
         self.memory.add_finding(
-            self.session_id, title, severity,
-            description, location, proof, mitre
+            self.session_id, title, final_severity,
+            description, location, final_proof, mitre
         )
-        self.logger.finding(title, severity, location)
+        self.logger.finding(title, final_severity, location)
 
     def save_intel(self, intel_type, key, value):
         self.memory.save_intel(self.session_id, intel_type, key, value)

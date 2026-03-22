@@ -47,10 +47,24 @@ def run_selftest():
         m.close()
         os.remove("memory/selftest_tmp.db")
 
-    def test_llm():
+    def test_llm_config():
         from core.llm import LLMConnector
         l = LLMConnector()
         assert len(l.PROVIDERS) == 6
+
+    def test_llm_connectivity():
+        """Test actual LLM API connection if configured"""
+        from core.llm import LLMConnector
+        l = LLMConnector()
+        if not l.is_configured():
+            print("  ⚠️  LLM not configured — skipping connectivity test")
+            print("       Run: python3 rajan.py --setup")
+            return
+        # Try a minimal API call
+        provider = l.config.get("provider_name", "Unknown")
+        response = l.quick_ask("Reply with exactly: RAJAN_OK")
+        assert response and len(response) > 0, "LLM returned empty response"
+        print(f"       Provider: {provider} ✓")
 
     def test_logger():
         from core.logger import Logger
@@ -175,7 +189,8 @@ def run_selftest():
 
     print("  Testing core modules...")
     test("Memory System", test_memory)
-    test("LLM Connector", test_llm)
+    test("LLM Config (6 providers)", test_llm_config)
+    test("LLM API Connectivity", test_llm_connectivity)
     test("Logger", test_logger)
     test("Task Tree (19 tasks)", test_task_tree)
     test("Tool Manager", test_tool_manager)
