@@ -48,9 +48,21 @@ def run_selftest():
         os.remove("memory/selftest_tmp.db")
 
     def test_llm_config():
-        from core.llm import LLMConnector
+        from core.llm import LLMConnector, RAJAN_CORE_PROMPT
         l = LLMConnector()
-        assert len(l.PROVIDERS) == 6
+        assert len(l.PROVIDERS) == 12, f"Expected 12 providers, got {len(l.PROVIDERS)}"
+        # Core prompt is always present
+        assert "RAJAN" in RAJAN_CORE_PROMPT
+        assert "ethical hacking" in RAJAN_CORE_PROMPT.lower()
+        assert "CLI" in RAJAN_CORE_PROMPT
+        # get_system_prompt returns core prompt when no user addon
+        prompt = l.get_system_prompt()
+        assert "RAJAN" in prompt
+        # With user addon
+        l.config["user_system_prompt"] = "Always be brief."
+        prompt_with_addon = l.get_system_prompt()
+        assert "Always be brief." in prompt_with_addon
+        assert "RAJAN" in prompt_with_addon  # core still present
 
     def test_llm_connectivity():
         """Test actual LLM API connection if configured"""
@@ -189,7 +201,7 @@ def run_selftest():
 
     print("  Testing core modules...")
     test("Memory System", test_memory)
-    test("LLM Config (6 providers)", test_llm_config)
+    test("LLM Config (12 providers + dual system prompts)", test_llm_config)
     test("LLM API Connectivity", test_llm_connectivity)
     test("Logger", test_logger)
     test("Task Tree (19 tasks)", test_task_tree)

@@ -55,7 +55,7 @@ DONATION_MSG = f"""
 
 HELP_TEXT = """
 ╔══════════════════════════════════════════════════════╗
-║              RAJAN — How to Talk to Me              ║
+║              RAJAN v1.1.0 — How to Talk to Me       ║
 ╠══════════════════════════════════════════════════════╣
 ║  🎯 SCANNING                                        ║
 ║  "scan example.com for vulnerabilities"             ║
@@ -72,10 +72,15 @@ HELP_TEXT = """
 ║  📊 SESSION & REPORTS                               ║
 ║  "show my findings" / "generate report"             ║
 ║  "sessions" / "resume last session"                 ║
-║  "replay session" / "check what tools I have"       ║
+║  "replay session" / "chain analysis"                ║
+║  "export findings" / "export hackerone"             ║
 ║                                                      ║
-║  ⚙️  SETTINGS                                        ║
-║  "setup email notifications"                        ║
+║  🤖 AI & SETTINGS                                   ║
+║  "what provider am I using?"                        ║
+║  "edit my prompt" / "customize rajan"               ║
+║  "check what tools I have"                          ║
+║  "config" / "setup email notifications"             ║
+║  "selftest" / "check for updates"                   ║
 ║                                                      ║
 ║  💬 WHILE RAJAN WORKS (prefix with !)              ║
 ║  !status  !stop  !resume  !report so far           ║
@@ -137,6 +142,10 @@ class RAJAN:
         if args.notify_setup:
             from core.notifier import Notifier
             Notifier().setup_email()
+            return
+
+        if args.prompt:
+            self.llm.update_system_prompt()
             return
 
         if args.selftest:
@@ -306,8 +315,20 @@ class RAJAN:
             Config().interactive_setup()
             return None
 
-        # Self-test
-        if any(kw in t for kw in ["selftest", "self test", "self-test", "test rajan", "health check"]):
+        # System prompt customization
+        if any(kw in t for kw in ["my prompt", "system prompt", "my persona",
+                                   "edit prompt", "change prompt", "customize rajan"]):
+            self.llm.update_system_prompt()
+            return None
+
+        # Show current provider/prompt info
+        if any(kw in t for kw in ["what provider", "which ai", "what llm", "current provider"]):
+            cfg = self.llm.config
+            print(f"\n  Provider : {cfg.get('provider_name','Not set')}")
+            print(f"  Model    : {cfg.get('model','Not set')}")
+            user_p = cfg.get('user_system_prompt','')
+            print(f"  Custom prompt: {user_p[:80] if user_p else '(none)'}\n")
+            return None
             from core.selftest import run_selftest
             run_selftest()
             return None
@@ -577,6 +598,8 @@ def main():
                         help="Quick scan mode — only critical checks")
     parser.add_argument("--dry-run", action="store_true",
                         help="Simulate scan without making real HTTP requests (scope/demo testing)")
+    parser.add_argument("--prompt", action="store_true",
+                        help="Edit your custom personality/style instructions for RAJAN")
 
     args = parser.parse_args()
 

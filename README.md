@@ -282,18 +282,36 @@ Complete checklists for web app and network pentesting across 6 phases (Recon, S
 
 ## 🔌 LLM Support
 
-RAJAN works with any of these providers — you choose during first run. RAJAN tests your API connection at startup to catch bad keys or wrong model names before a scan begins.
+RAJAN works with any of these providers — your choice during first run. RAJAN tests your API connection before each scan begins. You can also use any OpenAI-compatible endpoint not listed here via the Custom provider option.
 
-| Provider | Free | Speed | Best For |
-|----------|------|-------|----------|
-| **Groq** ⭐ | ✅ Free key | ⚡ Fastest | Recommended — Llama 3.3 / DeepSeek |
-| **OpenRouter** | ✅ Free models | ✅ Fast | Many model options including free ones |
-| **Ollama** | ✅ Fully offline | Depends on device | Privacy-first, no data sent anywhere |
-| **OpenAI** | ❌ Paid | ✅ Excellent | GPT-4o for maximum accuracy |
-| **Anthropic Claude** | ❌ Paid | ✅ Excellent | Best reasoning for complex targets |
-| **HuggingFace** | ✅ Free tier | ⚠️ Varies | Open source models |
+| Provider | Free | Best For |
+|----------|------|----------|
+| **Groq** ⭐ | ✅ Free key | Recommended — fastest, Llama 3.3 / DeepSeek |
+| **Puter.js** 🆓 | ✅ No key needed | 500+ models free — GPT-4o, Claude, Gemini, DeepSeek |
+| **OpenRouter** | ✅ Free models | Many models, free tier available |
+| **Ollama** | ✅ Fully offline | Privacy-first, no data sent anywhere |
+| **Google Gemini** | ✅ Free tier | Gemini 1.5 Flash / Pro |
+| **Mistral AI** | ✅ Free tier | Open-source Mistral models |
+| **Together AI** | ✅ $25 credit | Llama, Mixtral, DeepSeek |
+| **LM Studio** | ✅ Local | OpenAI-compatible local server |
+| **OpenAI** | ❌ Paid | GPT-4o for maximum accuracy |
+| **Anthropic Claude** | ❌ Paid | Best reasoning for complex targets |
+| **HuggingFace** | ✅ Free tier | Open source inference API |
+| **Custom** | Any | Any OpenAI-compatible API endpoint |
 
 Switch providers anytime: `python3 rajan.py --setup`
+
+### 💬 Dual System Prompt
+RAJAN uses two layered system prompts:
+- **Core prompt** (compulsory): Defines RAJAN's identity, CLI context, hacking expertise — always active, cannot be removed
+- **Your custom addon** (optional): Add your own instructions on top — language preference, focus area, response style, etc.
+
+```bash
+python3 rajan.py --prompt          # Edit your custom addon prompt
+python3 rajan.py --setup           # Change AI provider
+```
+
+Examples of user addons: `"Always respond in Spanish"` · `"Focus only on bug bounty, skip network tests"` · `"Be very brief, one paragraph max"`
 
 ---
 
@@ -318,6 +336,8 @@ python3 rajan.py --export all                 # All export formats at once
 python3 rajan.py --notify-setup               # Setup email notifications
 python3 rajan.py --selftest                   # Verify RAJAN is working correctly
 python3 rajan.py --update                     # Check for newer version
+python3 rajan.py --prompt                     # Edit your custom personality/style for RAJAN
+python3 rajan.py --dry-run --target t.com    # Simulate scan without real HTTP requests
 ```
 
 ---
