@@ -194,7 +194,7 @@ class Brain:
         findings = self.memory.get_findings(self.session_id)
         intel = self.memory.get_intel(self.session_id)
         findings_summary = [f"{f['title']} [{f['severity']}]" for f in findings[:8]]
-        intel_summary = [f"{itype}/{key}:{value[:30]}" for _, itype, key, value, *_ in intel[:10]]
+        intel_summary = [f"{itype}/{key}:{value[:30]}" for itype, key, value in intel[:10]]
 
         analysis = self.llm.quick_ask(
             f"You are RAJAN's planner. Target: {target}\n"
@@ -265,12 +265,13 @@ class Brain:
     def _render_progress(self, target, stats, findings_count=0):
         """
         Clean progress display using rich — works on narrow Termux screens.
-        No \r carriage return — avoids garbled output on screen wrap.
+        Uses \r carriage return for in-place updates (rich handles this safely).
         """
         try:
             from rich.console import Console
-            from rich.text import Text
-            console = Console()
+            if not hasattr(self, '_console'):
+                self._console = Console()
+            console = self._console
             total = stats.get("total", 1)
             done = stats.get("done", 0)
             failed = stats.get("failed", 0)
@@ -283,13 +284,14 @@ class Brain:
                       else (self.current_task.name if self.current_task else "waiting")
             line = (f"[{filled}{empty}] {pct}% "
                     f"✅{done} ❌{failed} 🔴{findings_count} ▶ {current}")
-            console.print(line, end="\n", highlight=False)
+            console.print(line, end="\r", highlight=False)
         except ImportError:
             # Fallback if rich not installed
             total = stats.get("total", 1)
             done = stats.get("done", 0)
             pct = int((done / total) * 100) if total else 0
-            print(f"  [{pct}%] {done}/{total} tasks | findings: {findings_count}")
+            bar = "█" * int(20 * pct / 100) + "░" * (20 - int(20 * pct / 100))
+            print(f"  [{bar}] {pct}% {done}/{total} tasks | findings: {findings_count}", end="\r", flush=True)
 
     # ── Interrupt Chat ────────────────────────────────────────
 
