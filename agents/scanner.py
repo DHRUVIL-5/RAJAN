@@ -43,6 +43,7 @@ class ScannerAgent(BaseAgent):
         lock = threading.Lock()
 
         def scan_port(port):
+            sock = None
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(1.5)
@@ -50,9 +51,14 @@ class ScannerAgent(BaseAgent):
                     service = self.COMMON_PORTS.get(port, "Unknown")
                     with lock:
                         open_ports.append((port, service))
-                sock.close()
             except Exception:
                 pass
+            finally:
+                if sock:
+                    try:
+                        sock.close()
+                    except Exception:
+                        pass
 
         threads = [threading.Thread(target=scan_port, args=(p,))
                    for p in self.COMMON_PORTS]

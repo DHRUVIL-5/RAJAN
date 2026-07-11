@@ -329,6 +329,9 @@ class RAJAN:
             user_p = cfg.get('user_system_prompt','')
             print(f"  Custom prompt: {user_p[:80] if user_p else '(none)'}\n")
             return None
+
+        # Self-test
+        if any(kw in t for kw in ["selftest", "self test", "self-test", "test", "check", "verify"]):
             from core.selftest import run_selftest
             run_selftest()
             return None
@@ -423,7 +426,7 @@ class RAJAN:
             target = ips[0]
 
         # Extract scope
-        scope_match = re.search(r'scope[:\s]+([^\s,]+)', text, re.IGNORECASE)
+        scope_match = re.search(r'scope[:]\s]+([^\s,]+)', text, re.IGNORECASE)
         if scope_match:
             scope = scope_match.group(1)
 

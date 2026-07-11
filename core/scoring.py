@@ -152,7 +152,7 @@ class ScoringEngine:
         scoring = score_finding(title, description, proof, has_poc)
 
         # Override severity from CVSS if higher
-        sev_rank = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
+        sev_rank = {"INFO": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
         cvss_sev = scoring["severity"]
         if sev_rank.get(cvss_sev, 0) > sev_rank.get(severity, 0):
             final_severity = cvss_sev

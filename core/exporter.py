@@ -5,6 +5,7 @@ JSON, CSV, TXT, HackerOne-ready, Bugcrowd-ready
 """
 
 import json
+import csv
 import os
 import datetime
 
@@ -63,19 +64,21 @@ class Exporter:
         findings = self.memory.get_findings(self.session_id)
         filename = f"{self._base_filename()}.csv"
 
-        with open(filename, "w", encoding="utf-8") as f:
-            f.write("ID,Title,Severity,Location,Description,Proof,MITRE,Found At\n")
+        with open(filename, "w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["ID", "Title", "Severity", "Location", "Description",
+                           "Proof", "MITRE", "Found At"])
             for i, finding in enumerate(findings, 1):
-                def esc(s):
-                    return f'"{str(s).replace(chr(34), chr(39))}"'
-                f.write(
-                    f"{i},{esc(finding['title'])},{esc(finding['severity'])},"
-                    f"{esc(finding.get('location',''))},"
-                    f"{esc(finding['description'])},"
-                    f"{esc(finding.get('proof',''))},"
-                    f"{esc(finding.get('mitre_technique',''))},"
-                    f"{esc(finding.get('found_at',''))}\n"
-                )
+                writer.writerow([
+                    i,
+                    finding['title'],
+                    finding['severity'],
+                    finding.get('location', ''),
+                    finding['description'],
+                    finding.get('proof', ''),
+                    finding.get('mitre_technique', ''),
+                    finding.get('found_at', '')
+                ])
         return filename
 
     def export_txt(self):

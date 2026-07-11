@@ -195,7 +195,7 @@ class ChainAnalyzer:
         Medium + Medium forming a Critical chain → both get boosted to High minimum.
         This makes the real impact visible in the report.
         """
-        sev_rank = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
+        sev_rank = {"INFO": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
         chain_rank = sev_rank.get(chain["impact"], 3)
         boost_to = "HIGH" if chain_rank >= 3 else "MEDIUM"
 
