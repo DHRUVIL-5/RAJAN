@@ -4,7 +4,7 @@ XSS, SQLi, IDOR, SSRF, LFI, SSTI, Open Redirect, CSRF, Auth, SSL
 Uses requests throughout (standardized HTTP client)
 """
 
-import re, socket, time
+import os, re, socket, ssl, time
 import requests
 import requests.exceptions
 import urllib3
@@ -121,9 +121,25 @@ class WebAgent(BaseAgent):
 
     def directory_discovery(self):
         self.logger.info("Directory discovery", "Web"); found = []
-        ok, out = ToolManager.run("gobuster",
-            ["dir","-u",self.base_url,"-w","/usr/share/wordlists/dirb/common.txt",
-             "-q","--no-error","-t","20"],timeout=180)
+        # Try common wordlist paths across different environments
+        wordlist_paths = [
+            "/usr/share/wordlists/dirb/common.txt",
+            "/usr/share/dirb/wordlists/common.txt",
+            "/usr/share/wordlists/dirbuster/directory-list-2.3-small.txt",
+            "/data/data/com.termux/files/usr/share/wordlists/dirb/common.txt",
+        ]
+        wordlist = None
+        for wp in wordlist_paths:
+            if os.path.exists(wp):
+                wordlist = wp
+                break
+        if not wordlist:
+            # Skip gobuster, use built-in fallback paths directly
+            ok, out = False, ""
+        else:
+            ok, out = ToolManager.run("gobuster",
+                ["dir","-u",self.base_url,"-w",wordlist,
+                 "-q","--no-error","-t","20"],timeout=180)
         if ok and out:
             for line in out.splitlines():
                 if "(Status: 2" in line or "(Status: 3" in line:
