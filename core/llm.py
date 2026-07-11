@@ -497,14 +497,18 @@ class LLMConnector:
 
     def _call_gemini(self, messages, system_prompt):
         """Google Gemini API"""
-        # Convert messages to Gemini format
-        parts = [{"text": f"[SYSTEM]: {system_prompt}\n\n"}]
-        for m in messages:
+        # Convert messages to Gemini format with proper roles
+        contents = []
+        # Prepend system prompt to first user message
+        for i, m in enumerate(messages):
             role = "user" if m["role"] == "user" else "model"
-            parts.append({"text": m["content"]})
+            text = m["content"]
+            if i == 0 and m["role"] == "user":
+                text = f"[SYSTEM INSTRUCTION]: {system_prompt}\n\n{text}"
+            contents.append({"role": role, "parts": [{"text": text}]})
 
         payload = {
-            "contents": [{"parts": parts}],
+            "contents": contents,
             "generationConfig": {"temperature": 0.7, "maxOutputTokens": 2048}
         }
         url = (f"{self.config['base_url']}/{self.config['model']}"
