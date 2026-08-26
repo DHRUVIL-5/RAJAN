@@ -17,6 +17,11 @@ class Notifier:
 
     def __init__(self):
         self.config = self._load()
+        try:
+            from core.config import Config
+            self.app_config = Config()
+        except Exception:
+            self.app_config = None
 
     def _load(self):
         if os.path.exists(self.CONFIG_PATH):
@@ -37,11 +42,14 @@ class Notifier:
 
     def notify(self, title, message, findings_count=0):
         """Send all available notifications"""
-        self._terminal_bell()
+        notify_cfg = self.app_config.get("notify", default={}) if self.app_config else {}
+        if notify_cfg.get("terminal_bell", True):
+            self._terminal_bell()
         self._print_banner(title, message, findings_count)
-        if self.is_termux():
+        if self.is_termux() and notify_cfg.get("termux_push", True):
             self._termux_notify(title, message)
-        if self.config.get("email_enabled"):
+        email_enabled = notify_cfg.get("email", self.config.get("email_enabled", False))
+        if email_enabled and self.config.get("email_enabled", True):
             self._email_notify(title, message)
 
     def _terminal_bell(self):
@@ -53,12 +61,17 @@ class Notifier:
 
     def _print_banner(self, title, message, findings_count):
         from core.logger import Colors
+        def fit(value, width):
+            text = " ".join(str(value).splitlines())
+            return text[:width - 1] + "…" if len(text) >= width else text
+
         print(f"\n{Colors.GREEN}{Colors.BOLD}")
         print("╔" + "═" * 55 + "╗")
-        print(f"║  🎉 {title:<50}║")
-        print(f"║  {message:<53}║")
+        print(f"║  🎉 {fit(title, 50):<50}║")
+        print(f"║  {fit(message, 53):<53}║")
         if findings_count > 0:
-            print(f"║  🔴 {findings_count} vulnerabilities found!{' ' * (35 - len(str(findings_count)))}║")
+            finding_line = fit(f"🔴 {findings_count} vulnerabilities found!", 53)
+            print(f"║  {finding_line:<53}║")
         print("╚" + "═" * 55 + "╝")
         print(f"{Colors.RESET}")
 

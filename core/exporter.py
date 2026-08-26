@@ -8,6 +8,7 @@ import json
 import csv
 import os
 import datetime
+import re
 
 
 class Exporter:
@@ -18,7 +19,9 @@ class Exporter:
 
     def _base_filename(self):
         session = self.memory.get_session(self.session_id)
-        target = session.get("target", "target") if session else "target"
+        raw_target = session.get("target", "target") if session else "target"
+        target = re.sub(r"[^A-Za-z0-9._-]+", "_", str(raw_target or "target"))
+        target = target.strip("._")[:100] or "target"
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         return f"reports/export_{target}_{ts}"
 
@@ -66,8 +69,10 @@ class Exporter:
 
         with open(filename, "w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(["ID", "Title", "Severity", "Location", "Description",
-                           "Proof", "MITRE", "Found At"])
+            writer.writerow([
+                "ID", "Title", "Severity", "Location", "Description", "Proof",
+                "MITRE", "CVSS", "Confidence", "Confidence Label", "Reliability", "Found At",
+            ])
             for i, finding in enumerate(findings, 1):
                 writer.writerow([
                     i,
@@ -77,6 +82,10 @@ class Exporter:
                     finding['description'],
                     finding.get('proof', ''),
                     finding.get('mitre_technique', ''),
+                    finding.get('cvss_score', ''),
+                    finding.get('confidence_score', ''),
+                    finding.get('confidence_label', ''),
+                    finding.get('reliability', ''),
                     finding.get('found_at', '')
                 ])
         return filename

@@ -91,6 +91,23 @@ All your settings — preferred scan mode, report format, notification preferenc
 
 ---
 
+## 🛠️ Reliability and Safety Improvements
+
+The current maintenance release includes several reliability improvements across the full workflow. Session tasks now persist stable IDs, dependencies, results, and status transitions, so `--resume` continues the original session instead of creating a duplicate session. Scope parsing now normalizes URLs, ports, trailing dots, and wildcard boundaries before every request. External-tool failures propagate their real exit codes, and the installer uses argument-list subprocess execution rather than a shell.
+
+Findings are deduplicated per session and location while preserving CVSS, confidence, and reliability metadata in SQLite and CSV exports. Generated HTML reports escape target-controlled content, and report/export filenames are sanitized to remain inside the `reports/` directory. Hugging Face requests now receive the same compulsory RAJAN system prompt as the other providers. Dry-run mode now avoids DNS, sockets, HTTP requests, JavaScript fetches, TLS probes, cloud probes, and external scanning tools.
+
+A standard-library regression suite covers these behaviors and can be run locally with:
+
+```bash
+python3 -m unittest discover -s tests -v
+python3 -m compileall -q .
+```
+
+GitHub Actions runs the same checks on Python 3.9, 3.11, and 3.12 for pushes and pull requests.
+
+---
+
 ## 🚀 Installation
 
 ### Any System (Universal)

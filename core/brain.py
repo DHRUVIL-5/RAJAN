@@ -40,6 +40,7 @@ class Brain:
         self.agent_bus = {}      # Agent-to-Agent shared message bus
         self.feedback_cycle = 0  # Re-plan cycles completed
         self.dry_run = False     # Dry run — no real HTTP requests
+        self.quick_mode = False  # Quick mode — prioritize high-value checks
 
     # ── Autonomous Session ────────────────────────────────────
 
@@ -56,6 +57,16 @@ class Brain:
         # Build initial task tree
         self.task_tree = TaskTree(target, scope, self.memory, self.session_id)
         tasks = self.task_tree.build_default_tree()
+        if self.quick_mode:
+            quick_keywords = (
+                "dns", "subdomain", "port scan", "service", "fingerprinting",
+                "directory", "xss", "sql", "ssrf", "js file", "cve", "known vulnerability",
+                "ssl", "report",
+            )
+            for planned in tasks:
+                if not any(keyword in planned.name.lower() for keyword in quick_keywords):
+                    self.task_tree.mark_skipped(planned)
+            self.logger.info("Quick mode: passive OSINT and lower-priority checks skipped", "Brain")
         self.logger.info(f"Task tree built — {len(tasks)} tasks planned", "Brain")
 
         # Create agents with injected scope + bus + scoring
@@ -68,7 +79,13 @@ class Brain:
         from agents.reporter import ReporterAgent
 
         def make(cls):
-            a = cls(self.memory, self.llm, self.logger, self.session_id, target)
+            if cls.__name__ == "WebAgent":
+                a = cls(
+                    self.memory, self.llm, self.logger, self.session_id, target,
+                    dry_run=getattr(self, "dry_run", False),
+                )
+            else:
+                a = cls(self.memory, self.llm, self.logger, self.session_id, target)
             a.scope = self.scope
             a.agent_bus = self.agent_bus
             a.scoring = self.scoring
@@ -97,7 +114,7 @@ class Brain:
                 time.sleep(1)
                 continue
 
-            task.status = "running"
+            self.task_tree.mark_running(task)
             self.current_task = task
             stats = self.task_tree.stats()
             findings_count = len(self.memory.get_findings(self.session_id))
@@ -123,21 +140,28 @@ class Brain:
             self.logger.thinking(f"[{task.agent.upper()}] {task.name}", "Brain")
 
             try:
-                # Run agent in ThreadPoolExecutor — prevents GIL blocking on Termux
-                with ThreadPoolExecutor(max_workers=1) as ex:
-                    future = ex.submit(agent.run_task, task.name)
-                    try:
-                        result = future.result(timeout=300)  # 5 min max per task
-                    except FuturesTimeout:
-                        result = "Task timed out after 5 minutes"
-                        self.logger.warning(f"Timeout: {task.name}", task.agent.upper())
+                # Run the task in a worker so the control loop stays responsive.
+                ex = ThreadPoolExecutor(max_workers=1)
+                future = ex.submit(agent.run_task, task.name)
+                try:
+                    result = future.result(timeout=300)  # 5 min max per task
+                except FuturesTimeout:
+                    result = "Task timed out after 5 minutes"
+                    self.logger.warning(f"Timeout: {task.name}", task.agent.upper())
+                    ex.shutdown(wait=False, cancel_futures=True)
+                except Exception:
+                    ex.shutdown(wait=False, cancel_futures=True)
+                    raise
+                else:
+                    ex.shutdown(wait=True)
 
                 self.task_tree.mark_done(task, result or "")
                 self.agent_bus[task.agent] = result or ""
                 self._notify_other_agents(agent_map, task.agent, result)
                 self.logger.success(f"Done: {task.name}", task.agent.upper())
 
-                if stats.get("done", 0) > 0 and stats.get("done", 0) % 5 == 0:
+                completed = self.task_tree.stats().get("done", 0)
+                if completed > 0 and completed % 5 == 0:
                     self._feedback_replan(target, agent_map)
 
             except Exception as e:
@@ -148,13 +172,19 @@ class Brain:
             time.sleep(0.3)
 
         # ── Done ──
+        was_complete = self.task_tree.is_complete()
         self.running = False
         findings = self.memory.get_findings(self.session_id)
         counts = self.memory.count_findings(self.session_id)
-        self.memory.update_session_status(self.session_id, "complete")
+        self.memory.update_session_status(
+            self.session_id, "complete" if was_complete else "stopped"
+        )
 
         self.logger.divider("═")
-        self.logger.done("All tasks complete!")
+        self.logger.done(
+            "All tasks complete!" if was_complete else
+            "Session stopped; progress has been saved."
+        )
         if findings:
             for f in findings:
                 self.logger.finding(f["title"], f["severity"], f.get("location", ""))
@@ -214,14 +244,17 @@ class Brain:
             if match:
                 new_tasks = json.loads(match.group())
                 for t in new_tasks[:3]:
-                    if isinstance(t, dict) and "task" in t:
-                        injected = self.task_tree.add_dynamic_task(
-                            t["task"],
-                            t.get("agent", "web"),
-                            t.get("priority", 5)
-                        )
+                    if isinstance(t, dict) and isinstance(t.get("task"), str):
+                        agent = str(t.get("agent", "web")).lower()
+                        if agent not in agent_map:
+                            agent = "web"
+                        try:
+                            priority = max(1, min(10, int(t.get("priority", 5))))
+                        except (TypeError, ValueError):
+                            priority = 5
+                        self.task_tree.add_dynamic_task(t["task"].strip(), agent, priority)
                         self.logger.info(
-                            f"Re-plan: added task '{t['task']}'", "Brain"
+                            f"Re-plan: added task '{t['task'].strip()}'", "Brain"
                         )
         except Exception:
             pass  # LLM returned non-JSON — skip
