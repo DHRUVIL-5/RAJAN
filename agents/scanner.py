@@ -39,6 +39,9 @@ class ScannerAgent(BaseAgent):
             return f"Target {self.target} out of scope — scan blocked"
 
         self.logger.info(f"Port scanning {self.target}", "Scanner")
+        if self.dry_run:
+            self.logger.info("[DRY RUN] Port scan skipped", "Scanner")
+            return "Dry run: port scan skipped"
         open_ports = []
         lock = threading.Lock()
 
@@ -98,6 +101,9 @@ class ScannerAgent(BaseAgent):
             return f"Target {self.target} out of scope — skipped"
 
         self.logger.info("Service & version detection", "Scanner")
+        if self.dry_run:
+            self.logger.info("[DRY RUN] Service detection skipped", "Scanner")
+            return "Dry run: service detection skipped"
         ports = self.memory.get_intel(self.session_id, "port")
         if not ports:
             return "No open ports in memory yet"

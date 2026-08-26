@@ -18,9 +18,10 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class WebAgent(BaseAgent):
-    def __init__(self, memory, llm, logger, session_id, target):
+    def __init__(self, memory, llm, logger, session_id, target, dry_run=False):
         super().__init__(memory, llm, logger, session_id, target)
         self.name = "WebAgent"
+        self.dry_run = dry_run
         self.payloads = PayloadLibrary()
         self.mitre = MITREMapper()
         self.base_url = self._resolve_base_url()
@@ -33,6 +34,8 @@ class WebAgent(BaseAgent):
         self._session.verify = False  # handles self-signed certs uniformly
 
     def _resolve_base_url(self):
+        if self.dry_run:
+            return f"https://{self.target}"
         for scheme in ("https", "http"):
             try:
                 requests.get(f"{scheme}://{self.target}",
@@ -211,6 +214,9 @@ class WebAgent(BaseAgent):
 
     def analyze_js(self):
         self.logger.info("JS file secret analysis","Web")
+        if self.dry_run:
+            self.logger.info("[DRY RUN] JavaScript analysis skipped", "Web")
+            return "Dry run: JavaScript analysis skipped"
         status, body, _ = self._get()
         js_files = re.findall(r'(?:src|href)=["\']([^"\']+\.js[^"\']*)["\']', body)
         js_urls = []
@@ -230,7 +236,8 @@ class WebAgent(BaseAgent):
             if not self.is_in_scope(js_url):
                 continue
             try:
-                r = self._session.get(js_url, timeout=8)
+                self._rate_limit()
+                r = self._session.get(js_url, timeout=8, allow_redirects=False)
                 content = r.text[:100000]
                 for name, pat in patterns:
                     if re.search(pat, content):
@@ -244,6 +251,9 @@ class WebAgent(BaseAgent):
 
     def check_ssl(self):
         self.logger.info("SSL/TLS check","Web")
+        if self.dry_run:
+            self.logger.info("[DRY RUN] SSL/TLS check skipped", "Web")
+            return "Dry run: SSL/TLS check skipped"
         try:
             ctx = ssl.create_default_context()
             with ctx.wrap_socket(socket.socket(), server_hostname=self.target) as s:

@@ -76,6 +76,9 @@ class OSINTAgent(BaseAgent):
             return f"Target {self.target} out of scope — skipped"
 
         self.logger.info("Checking for exposed cloud buckets", "OSINT")
+        if self.dry_run:
+            self.logger.info("[DRY RUN] Cloud bucket checks skipped", "OSINT")
+            return "Dry run: cloud bucket check skipped"
         domain_short = self.target.replace("www.", "").split(".")[0]
         buckets = [
             f"https://{domain_short}.s3.amazonaws.com",

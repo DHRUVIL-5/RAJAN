@@ -179,7 +179,10 @@ class RAJAN:
             dry = getattr(args, 'dry_run', False)
             if dry:
                 print(f"  🔍 DRY RUN mode — no real HTTP requests will be made")
-            self._start_autonomous(args.target, scope, mode, dry_run=dry)
+            self._start_autonomous(
+                args.target, scope, mode, dry_run=dry,
+                quick_mode=getattr(args, "quick", False),
+            )
             return
 
         # Default: interactive
@@ -426,9 +429,9 @@ class RAJAN:
             target = ips[0]
 
         # Extract scope
-        scope_match = re.search(r'scope[:]\s]+([^\s,]+)', text, re.IGNORECASE)
+        scope_match = re.search(r'scope\s*[:=]\s*([^\s,]+)', text, re.IGNORECASE)
         if scope_match:
-            scope = scope_match.group(1)
+            scope = scope_match.group(1).strip('"\'')
 
         # Check for semi-auto mode
         if any(kw in text.lower() for kw in ["step by step", "ask me", "semi", "manual"]):
@@ -436,7 +439,8 @@ class RAJAN:
 
         return target, scope, mode
 
-    def _start_autonomous(self, target, scope="", mode="auto", dry_run=False):
+    def _start_autonomous(self, target, scope="", mode="auto", dry_run=False,
+                          quick_mode=False, existing_session_id=None):
         """Start autonomous hacking session"""
         print(f"\n  {Colors.GREEN}RAJAN: Starting {'[DRY RUN] ' if dry_run else ''}autonomous session on {Colors.BOLD}{target}{Colors.RESET}")
         print(f"  {Colors.DIM}Scope: {scope or 'Full target'} | Mode: {mode}{Colors.RESET}")
@@ -444,11 +448,12 @@ class RAJAN:
             print(f"  {Colors.YELLOW}⚠️  Dry run — no real HTTP requests will be made{Colors.RESET}")
         print(f"\n  {Colors.YELLOW}💡 Interrupt commands: !status !stop !focus on [area]{Colors.RESET}\n")
 
-        self.session_id = self.memory.create_session(target, scope)
+        self.session_id = existing_session_id or self.memory.create_session(target, scope)
         self.logger.session_id = self.session_id
         self.logger.memory = self.memory
         self.brain = Brain(self.memory, self.llm, self.logger, self.session_id)
         self.brain.dry_run = dry_run
+        self.brain.quick_mode = quick_mode
 
         # Start autonomous work in background thread
         self.autonomous_thread = threading.Thread(
@@ -491,8 +496,10 @@ class RAJAN:
         print(f"  Target: {session['target']}")
         print(f"  Started: {session['started_at']}\n")
         self.session_id = session_id
-        self.brain = Brain(self.memory, self.llm, self.logger, session_id)
-        self._start_autonomous(session["target"], session.get("scope", ""), "auto")
+        self._start_autonomous(
+            session["target"], session.get("scope", ""), "auto",
+            existing_session_id=session_id,
+        )
 
     def _show_sessions(self):
         sessions = self.memory.get_all_sessions()
@@ -607,7 +614,13 @@ def main():
     args = parser.parse_args()
 
     rajan = RAJAN()
-    rajan.boot()
+    setup_free_commands = (
+        args.setup or args.tools or args.sessions or args.replay or
+        args.notify_setup or args.prompt or args.selftest or args.update or
+        args.config or args.export
+    )
+    if not setup_free_commands:
+        rajan.boot()
     rajan.run_cli(args)
 
 

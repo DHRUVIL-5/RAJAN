@@ -5,15 +5,30 @@ Generates professional reports in Markdown AND HTML
 
 import datetime
 import os
+import re
+from html import escape
 
 from knowledge.mitre import MITREMapper
 from knowledge.methodology import BugBountyGuide
 
 
+def _html(value):
+    return escape(str(value if value is not None else ""))
+
+
+def _md(value):
+    return str(value if value is not None else "").replace("\\", "\\\\").replace("|", "\\|").replace("`", "\\`").replace("\n", " ")
+
+
+def _safe_filename(value):
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", str(value or "target"))
+    return cleaned.strip("._")[:100] or "target"
+
+
 def generate_html_report(session, findings, intel, counts):
     mitre = MITREMapper()
     date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    target = session.get("target", "Unknown")
+    target = _html(session.get("target", "Unknown"))
 
     sev_colors = {
         "CRITICAL": "#ff4444",
@@ -38,22 +53,22 @@ def generate_html_report(session, findings, intel, counts):
         if mitre_info:
             mitre_section = f"""
             <div class="mitre-box">
-                <strong>🛡️ MITRE ATT&CK:</strong> {f.get('mitre_technique','')} —
-                {mitre_info['name']} ({mitre_info['tactic']})<br>
-                <strong>Remediation:</strong> {mitre_info['mitigation']}
+                <strong>🛡️ MITRE ATT&CK:</strong> {_html(f.get('mitre_technique',''))} —
+                {_html(mitre_info['name'])} ({_html(mitre_info['tactic'])})<br>
+                <strong>Remediation:</strong> {_html(mitre_info['mitigation'])}
             </div>"""
 
         findings_html += f"""
         <div class="finding" style="border-left: 5px solid {color}; background: {bg};">
             <div class="finding-header">
                 <span class="finding-num">#{i}</span>
-                <span class="finding-title">{f['title']}</span>
-                <span class="severity-badge" style="background:{color}">{sev}</span>
+                <span class="finding-title">{_html(f.get('title','Untitled'))}</span>
+                <span class="severity-badge" style="background:{color}">{_html(sev)}</span>
             </div>
             <table class="finding-table">
-                <tr><td><strong>Location</strong></td><td>{f.get('location','N/A')}</td></tr>
-                <tr><td><strong>Description</strong></td><td>{f['description']}</td></tr>
-                <tr><td><strong>Proof/PoC</strong></td><td><code>{f.get('proof','N/A')}</code></td></tr>
+                <tr><td><strong>Location</strong></td><td>{_html(f.get('location','N/A'))}</td></tr>
+                <tr><td><strong>Description</strong></td><td>{_html(f.get('description',''))}</td></tr>
+                <tr><td><strong>Proof/PoC</strong></td><td><code>{_html(f.get('proof','N/A'))}</code></td></tr>
             </table>
             {mitre_section}
         </div>"""
@@ -65,10 +80,13 @@ def generate_html_report(session, findings, intel, counts):
             _, itype, key, value, _ = row
         else:
             itype, key, value = row
-        intel_by_type.setdefault(itype, []).append(f"<tr><td>{key}</td><td>{value[:80]}</td></tr>")
+        intel_by_type.setdefault(itype, []).append(
+            f"<tr><td>{_html(key)}</td><td>{_html(str(value)[:80])}</td></tr>"
+        )
     for itype, rows in intel_by_type.items():
         intel_html += f"""
-        <h3>{itype.upper()}</h3>
+                    <h3>{_html(str(itype).upper())}</h3>
+
         <table class="intel-table">
             <tr><th>Key</th><th>Value</th></tr>
             {''.join(rows[:15])}
@@ -229,7 +247,7 @@ def generate_html_report(session, findings, intel, counts):
 
 def generate_markdown_report(session, findings, intel, counts, llm=None):
     date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    target = session.get("target", "Unknown")
+    target = _md(session.get("target", "Unknown"))
     mitre = MITREMapper()
 
     sev_emoji = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🟢"}
@@ -290,18 +308,18 @@ def generate_markdown_report(session, findings, intel, counts, llm=None):
             mitre_info = mitre.get_technique(mitre_id)
             remediation = mitre_info["mitigation"] if mitre_info else "Follow OWASP guidelines."
 
-            md += f"""### {i}. {f['title']} {emoji}
+            md += f"""### {i}. {_md(f.get('title','Untitled'))} {emoji}
 
 | Field | Detail |
 |-------|--------|
 | **Severity** | {sev} |
-| **Location** | `{f.get('location','N/A')}` |
+| **Location** | `{_md(f.get('location','N/A'))}` |
 | **MITRE ATT&CK** | [{mitre_id}]({f'https://attack.mitre.org/techniques/{mitre_id.replace(".","/")}'}) |
 | **Found at** | {f.get('found_at','N/A')} |
 
-**Description:** {f['description']}
+**Description:** {_md(f.get('description',''))}
 
-**Proof/PoC:** `{f.get('proof','N/A')}`
+**Proof/PoC:** `{_md(f.get('proof','N/A'))}`
 
 **Remediation:** {remediation}
 
@@ -318,10 +336,12 @@ def generate_markdown_report(session, findings, intel, counts, llm=None):
             _, itype, key, value, _ = row
         else:
             itype, key, value = row
-        intel_by_type.setdefault(itype, []).append(f"| `{key}` | `{value[:80]}` |")
+        intel_by_type.setdefault(itype, []).append(
+            f"| `{_md(key)}` | `{_md(str(value)[:80])}` |"
+        )
 
     for itype, rows in intel_by_type.items():
-        md += f"### {itype.upper()}\n\n| Key | Value |\n|-----|-------|\n"
+        md += f"### {_md(str(itype).upper())}\n\n| Key | Value |\n|-----|-------|\n"
         md += "\n".join(rows[:15])
         md += "\n\n"
 
@@ -355,7 +375,7 @@ def generate_markdown_report(session, findings, intel, counts, llm=None):
 def save_reports(session, findings, intel, counts, llm=None):
     """Save both HTML and MD reports, return filenames"""
     os.makedirs("reports", exist_ok=True)
-    target = session.get("target", "target")
+    target = _safe_filename(session.get("target", "target"))
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     base = f"reports/report_{target}_{timestamp}"
 

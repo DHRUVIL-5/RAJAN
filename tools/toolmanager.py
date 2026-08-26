@@ -68,7 +68,13 @@ class ToolManager:
                 text=True,
                 timeout=timeout
             )
-            output = result.stdout + result.stderr
+            output = (result.stdout or "") + (result.stderr or "")
+            if result.returncode != 0:
+                detail = output.strip() or f"exit code {result.returncode}"
+                return False, (
+                    f"Tool '{tool_name}' failed with exit code "
+                    f"{result.returncode}: {detail}"
+                )
             return True, output.strip()
         except subprocess.TimeoutExpired:
             return False, f"Tool '{tool_name}' timed out after {timeout}s"

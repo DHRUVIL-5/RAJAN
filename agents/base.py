@@ -33,8 +33,11 @@ class BaseAgent:
         self.last_request_time = time.time()
 
     def set_rate_limit(self, delay_seconds):
-        """Allow brain/user to adjust rate limit per session"""
-        self.request_delay = delay_seconds
+        """Allow brain/user to adjust rate limit per session."""
+        try:
+            self.request_delay = max(0.0, float(delay_seconds))
+        except (TypeError, ValueError):
+            raise ValueError("rate-limit delay must be a non-negative number")
 
     def run_task(self, task_name):
         raise NotImplementedError
@@ -48,21 +51,24 @@ class BaseAgent:
     def add_finding(self, title, severity, description, location="", proof="", mitre=""):
         """Save a confirmed finding with confidence scoring"""
         # Enrich with confidence score if scoring engine available
+        scoring = None
         if self.scoring:
             enriched = self.scoring.enrich_finding(
                 title, severity, description, proof, has_poc=bool(proof)
             )
             final_severity = enriched["severity"]
             final_proof = enriched["proof"]
+            scoring = enriched["scoring"]
         else:
             final_severity = severity
             final_proof = proof
 
-        self.memory.add_finding(
+        inserted = self.memory.add_finding(
             self.session_id, title, final_severity,
-            description, location, final_proof, mitre
+            description, location, final_proof, mitre, scoring=scoring
         )
-        self.logger.finding(title, final_severity, location)
+        if inserted is not False:
+            self.logger.finding(title, final_severity, location)
 
     def save_intel(self, intel_type, key, value):
         self.memory.save_intel(self.session_id, intel_type, key, value)

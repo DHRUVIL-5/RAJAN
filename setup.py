@@ -11,6 +11,7 @@ import sys
 import subprocess
 import shutil
 import platform
+import shlex
 
 
 def detect_env():
@@ -50,10 +51,12 @@ def pip_installed(pkg):
 
 
 def run_cmd(cmd, check=False):
-    print(f"  → {cmd}")
+    """Run a trusted installer command without invoking a shell."""
+    argv = shlex.split(cmd) if isinstance(cmd, str) else list(cmd)
+    print(f"  → {shlex.join(argv)}")
     try:
         result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, check=check
+            argv, shell=False, capture_output=True, text=True, check=check
         )
         if result.stdout.strip():
             print(f"    {result.stdout.strip()[:100]}")
@@ -70,10 +73,11 @@ def install_pip_pkg(pkg, extra_args=""):
         print(f"  ✓ {pkg_name} already installed — skipping")
         return True
     print(f"  ↓ Installing {pkg_name}...")
-    flags = "--break-system-packages --quiet"
+    argv = [sys.executable, "-m", "pip", "install", pkg,
+            "--break-system-packages", "--quiet"]
     if extra_args:
-        flags += f" {extra_args}"
-    return run_cmd(f"{sys.executable} -m pip install {pkg} {flags}")
+        argv.extend(shlex.split(extra_args))
+    return run_cmd(argv)
 
 
 def install_system_pkg(pkg, pkg_manager, check_cmd=None):
@@ -83,7 +87,10 @@ def install_system_pkg(pkg, pkg_manager, check_cmd=None):
         print(f"  ✓ {pkg} already installed — skipping")
         return True
     print(f"  ↓ Installing {pkg}...")
-    return run_cmd(f"{pkg_manager} {pkg} -y 2>/dev/null || true")
+    argv = shlex.split(pkg_manager) + [pkg]
+    if not pkg_manager.strip().startswith("brew "):
+        argv.append("-y")
+    return run_cmd(argv)
 
 
 def install_python_deps():
@@ -121,7 +128,7 @@ def setup_termux():
     missing = [p for p, c in termux_pkgs if not is_installed(c)]
     if missing:
         print(f"  ↓ Installing missing: {', '.join(missing)}")
-        run_cmd(f"pkg update -y -q 2>/dev/null")
+        run_cmd(["pkg", "update", "-y", "-q"])
         for pkg, _ in termux_pkgs:
             if pkg in missing:
                 install_system_pkg(pkg, "pkg install", pkg.replace("python", "python3"))
@@ -154,7 +161,7 @@ def setup_kali():
     ]
     missing = [p for p, c in kali_pkgs if not is_installed(c)]
     if missing:
-        run_cmd("sudo apt update -qq 2>/dev/null")
+        run_cmd(["sudo", "apt", "update", "-qq"])
         for pkg, check in kali_pkgs:
             if not is_installed(check):
                 install_system_pkg(pkg, "sudo apt install", check)
@@ -171,7 +178,7 @@ def setup_ubuntu():
     ]
     missing = [p for p, c in pkgs if not is_installed(c)]
     if missing:
-        run_cmd("sudo apt update -qq 2>/dev/null")
+        run_cmd(["sudo", "apt", "update", "-qq"])
         for pkg, check in pkgs:
             if not is_installed(check):
                 install_system_pkg(pkg, "sudo apt install", check)

@@ -23,6 +23,9 @@ class CloudAgent(BaseAgent):
             return f"Target {self.target} out of scope — skipped"
 
         self.logger.info("Running cloud security checks", "Cloud")
+        if self.dry_run:
+            self.logger.info("[DRY RUN] Cloud storage checks skipped", "Cloud")
+            return "Dry run: cloud checks skipped"
         base_name = self.target.replace("www.", "").split(".")[0]
 
         # Only check buckets that contain the target domain name

@@ -204,8 +204,10 @@ class LLMConnector:
         return {}
 
     def _save_config(self):
-        os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
-        with open(self.config_path, "w") as f:
+        directory = os.path.dirname(self.config_path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump(self.config, f, indent=2)
 
     def is_configured(self):
@@ -309,7 +311,10 @@ class LLMConnector:
         print(f"  ✅ Updated!")
 
     def chat(self, messages, system=None, retries=3):
-        """Send messages with retry + exponential backoff"""
+        """Send messages with retry + exponential backoff."""
+        if not isinstance(messages, list):
+            raise TypeError("messages must be a list of role/content dictionaries")
+        retries = max(1, int(retries))
         if not self.is_configured():
             return "❌ LLM not configured. Run: python3 rajan.py --setup"
 
@@ -322,7 +327,7 @@ class LLMConnector:
                 if fmt == "anthropic":
                     return self._call_anthropic(messages, system_prompt)
                 elif fmt == "huggingface":
-                    return self._call_huggingface(messages)
+                    return self._call_huggingface(messages, system_prompt)
                 elif fmt == "ollama":
                     return self._call_ollama(messages, system_prompt)
                 elif fmt == "puter":
@@ -391,8 +396,11 @@ class LLMConnector:
             result = json.loads(r.read().decode())
             return result["content"][0]["text"]
 
-    def _call_huggingface(self, messages):
-        prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
+    def _call_huggingface(self, messages, system_prompt):
+        prompt = "\n".join(
+            [f"system: {system_prompt}"] +
+            [f"{m['role']}: {m['content']}" for m in messages]
+        )
         payload = {"inputs": prompt, "parameters": {"max_new_tokens": 512}}
         headers = {
             "Content-Type": "application/json",

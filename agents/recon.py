@@ -50,6 +50,9 @@ class ReconAgent(BaseAgent):
             return f"Target {self.target} out of scope — skipped"
 
         self.logger.info(f"DNS lookup on {self.target}", "Recon")
+        if self.dry_run:
+            self.logger.info("[DRY RUN] DNS, WHOIS, and HTTP checks skipped", "Recon")
+            return "Dry run: reconnaissance network checks skipped"
         results = []
 
         try:
@@ -111,6 +114,9 @@ class ReconAgent(BaseAgent):
             return f"Target {self.target} out of scope — skipped"
 
         self.logger.info(f"Subdomain discovery on {self.target}", "Recon")
+        if self.dry_run:
+            self.logger.info("[DRY RUN] Subdomain discovery skipped", "Recon")
+            return "Dry run: subdomain discovery skipped"
         found = []
 
         ok, out = ToolManager.run("subfinder", ["-d", self.target, "-silent"], timeout=60)
