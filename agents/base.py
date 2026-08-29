@@ -5,9 +5,12 @@ Includes: scope enforcement, scoring, rate limiting, agent bus
 """
 
 import time
+import threading
 
 
 class BaseAgent:
+    _rate_lock = threading.Lock()
+    _target_last_request = {}
     def __init__(self, memory, llm, logger, session_id, target):
         self.memory = memory
         self.llm = llm
@@ -26,11 +29,16 @@ class BaseAgent:
         self.dry_run = False
 
     def _rate_limit(self):
-        """Enforce minimum delay between requests — avoids triggering WAFs/bans"""
-        elapsed = time.time() - self.last_request_time
-        if elapsed < self.request_delay:
-            time.sleep(self.request_delay - elapsed)
-        self.last_request_time = time.time()
+        """Enforce a shared minimum delay for all agents targeting one host."""
+        with self._rate_lock:
+            now = time.time()
+            last = self._target_last_request.get(self.target, 0.0)
+            elapsed = now - last
+            if elapsed < self.request_delay:
+                time.sleep(self.request_delay - elapsed)
+            now = time.time()
+            self._target_last_request[self.target] = now
+            self.last_request_time = now
 
     def set_rate_limit(self, delay_seconds):
         """Allow brain/user to adjust rate limit per session"""

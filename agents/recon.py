@@ -98,9 +98,10 @@ class ReconAgent(BaseAgent):
             if powered:
                 self.save_intel("tech", "powered_by", powered)
 
+            content_type = resp.headers.get("Content-Type", "").lower()
             for h in ["X-Frame-Options", "Content-Security-Policy",
                        "Strict-Transport-Security", "X-Content-Type-Options"]:
-                if h not in resp.headers:
+                if "text/html" in content_type and h not in resp.headers:
                     self.add_finding(
                         f"Missing Security Header: {h}", "LOW",
                         f"HTTP response missing {h} header.", url, "", "T1190"

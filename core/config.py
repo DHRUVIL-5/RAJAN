@@ -6,6 +6,7 @@ Stored in memory/config.json
 
 import json
 import os
+import sys
 
 
 DEFAULT_CONFIG = {
@@ -55,9 +56,9 @@ class Config:
                     saved = json.load(f)
                 # Deep merge with defaults
                 return self._merge(DEFAULT_CONFIG, saved)
-            except Exception:
-                pass
-        return dict(DEFAULT_CONFIG)
+            except Exception as exc:
+                print(f"Warning: could not read {self.PATH}: {exc}; using defaults.", file=sys.stderr)
+        return self._merge({}, DEFAULT_CONFIG)
 
     def _merge(self, base, override):
         result = dict(base)

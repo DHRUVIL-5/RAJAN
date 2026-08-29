@@ -223,10 +223,21 @@ class Brain:
 
         # Parse and inject new tasks
         try:
-            import json, re
-            match = re.search(r'\[.*?\]', analysis, re.DOTALL)
-            if match:
-                new_tasks = json.loads(match.group())
+            import json
+            new_tasks = None
+            decoder = json.JSONDecoder()
+            text = str(analysis or "")
+            for start, char in enumerate(text):
+                if char != "[":
+                    continue
+                try:
+                    candidate, _ = decoder.raw_decode(text[start:])
+                    if isinstance(candidate, list):
+                        new_tasks = candidate
+                        break
+                except json.JSONDecodeError:
+                    continue
+            if new_tasks is not None:
                 for t in new_tasks[:3]:
                     if isinstance(t, dict) and "task" in t:
                         injected = self.task_tree.add_dynamic_task(
@@ -336,8 +347,14 @@ class Brain:
         elif ml.startswith("!focus on "):
             self._reprioritize(ml.replace("!focus on ", "").strip())
         elif ml == "!skip" and self.current_task:
-            self.task_tree.mark_skipped(self.current_task)
-            self.logger.info(f"Skipped: {self.current_task.name}", "RAJAN")
+            if self.current_task.status == "running":
+                self.logger.warning(
+                    "Cannot skip a task that is already running; wait for it to finish.",
+                    "RAJAN"
+                )
+            else:
+                self.task_tree.mark_skipped(self.current_task)
+                self.logger.info(f"Skipped: {self.current_task.name}", "RAJAN")
         elif ml in ("!quit", "!exit"):
             self.running = False
             self.logger.info("Saving and quitting...", "RAJAN")

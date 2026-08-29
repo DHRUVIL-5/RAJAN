@@ -4,7 +4,7 @@ XSS, SQLi, IDOR, SSRF, LFI, SSTI, Open Redirect, CSRF, Auth, SSL
 Uses requests throughout (standardized HTTP client)
 """
 
-import os, re, socket, ssl, time
+import os, re, socket, ssl, time, html
 import requests
 import requests.exceptions
 import urllib3
@@ -110,8 +110,9 @@ class WebAgent(BaseAgent):
                 self.logger.success(f"Detected: {tech}","Web")
         sec_headers = {"Content-Security-Policy":"T1059.007","X-Frame-Options":"T1059.007",
                        "Strict-Transport-Security":"T1573","X-Content-Type-Options":"T1027"}
+        content_type = headers.get("Content-Type", "").lower()
         for h, mid in sec_headers.items():
-            if not headers.get(h):
+            if "text/html" in content_type and not headers.get(h):
                 self.add_finding(f"Missing Security Header: {h}","LOW",
                     f"HTTP response missing {h} header.",self.base_url,"",mid)
         return f"Status:{status} Tech:{', '.join(detected) or 'Unknown'}"
@@ -169,9 +170,10 @@ class WebAgent(BaseAgent):
         for _, path, _ in endpoints[:8]:
             for payload in payloads:
                 for param in params[:3]:
-                    status, body, _ = self._get(path, {param: payload})
+                    status, body, response_headers = self._get(path, {param: payload})
                     tested += 1
-                    if payload in body and status == 200:
+                    if (status == 200 and "text/html" in response_headers.get("Content-Type", "").lower()
+                            and payload in body and html.escape(payload) not in body):
                         self.add_finding(f"Reflected XSS — param '{param}'","HIGH",
                             "XSS payload reflected unsanitized in response.",
                             f"{self.base_url}{path}?{param}=",f"Payload:{payload[:60]}","T1059.007")
@@ -195,11 +197,15 @@ class WebAgent(BaseAgent):
                             f"SQL error triggered via '{param}' param.",
                             f"{self.base_url}{path}",f"Param:{param} Payload:{payload[:50]}","T1190")
                         found += 1; break
-            # Time-based
+            # Time-based: compare with a control request to account for
+            # ordinary latency and server load.
             for payload in self.payloads.get_payloads("sqli","blind_time")[:1]:
+                baseline_t0 = time.time()
+                self._get(path, {"id": "1"})
+                baseline = time.time() - baseline_t0
                 t0 = time.time()
                 self._get(path,{"id":payload})
-                if time.time()-t0 >= 4.5:
+                if time.time()-t0 - baseline >= 4.5:
                     self.add_finding("SQL Injection — Time-Based Blind","CRITICAL",
                         "Response delayed ~5s with time-based payload.",
                         f"{self.base_url}{path}",f"Payload:{payload[:50]}","T1190")

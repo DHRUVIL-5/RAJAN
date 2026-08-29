@@ -8,6 +8,7 @@ import os
 import subprocess
 import smtplib
 import json
+import sys
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -77,9 +78,9 @@ class Notifier:
                 timeout=5, capture_output=True
             )
         except FileNotFoundError:
-            pass  # termux-api not installed — silent fail
-        except Exception:
-            pass
+            print("Warning: termux-notification is not installed.", file=sys.stderr)
+        except Exception as exc:
+            print(f"Warning: Termux notification failed: {exc}", file=sys.stderr)
 
     def _email_notify(self, title, message):
         """Email notification when session done"""
@@ -101,8 +102,8 @@ class Notifier:
             with smtplib.SMTP_SSL(cfg.get("smtp_host", "smtp.gmail.com"), 465) as s:
                 s.login(cfg.get("email_from", ""), cfg.get("email_pass", ""))
                 s.sendmail(cfg["email_from"], cfg["email_to"], msg.as_string())
-        except Exception:
-            pass  # Email fails silently — never crash RAJAN
+        except Exception as exc:
+            print(f"Warning: email notification failed: {exc}", file=sys.stderr)
 
     def setup_email(self):
         """Interactive email notification setup"""
