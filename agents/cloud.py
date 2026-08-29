@@ -37,8 +37,14 @@ class CloudAgent(BaseAgent):
             # Extra guard: only proceed if domain name is in URL
             if base_name not in url:
                 continue
+            if self.dry_run:
+                self.logger.info(f"[DRY RUN] GET {url}", "Cloud")
+                continue
+            if not self.is_in_scope(url):
+                continue
+            self._rate_limit()
             try:
-                r = requests.get(url, timeout=5, verify=False)
+                r = requests.get(url, timeout=5, verify=True)
                 body = r.text[:200]
                 if any(kw in body for kw in
                        ["ListBucketResult", "Contents", "BlobServiceProperties"]):

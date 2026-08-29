@@ -36,10 +36,13 @@ class Notifier:
         return "com.termux" in os.environ.get("PREFIX", "")
 
     def notify(self, title, message, findings_count=0):
-        """Send all available notifications"""
-        self._terminal_bell()
+        """Send all available notifications."""
+        from core.config import Config
+        main_config = Config()
+        if main_config.get("notify", "terminal_bell", default=True):
+            self._terminal_bell()
         self._print_banner(title, message, findings_count)
-        if self.is_termux():
+        if self.is_termux() and main_config.get("notify", "termux_push", default=True):
             self._termux_notify(title, message)
         if self.config.get("email_enabled"):
             self._email_notify(title, message)

@@ -24,7 +24,7 @@ def detect_env():
             if "kali" in content:      return "kali"
             if "parrot" in content:    return "parrot"
             if "ubuntu" in content:    return "ubuntu"
-            if "debian" in content:    return "ubuntu"
+            if "debian" in content:    return "debian"
         except Exception:
             pass
         return "linux"
@@ -70,7 +70,11 @@ def install_pip_pkg(pkg, extra_args=""):
         print(f"  ✓ {pkg_name} already installed — skipping")
         return True
     print(f"  ↓ Installing {pkg_name}...")
-    flags = "--break-system-packages --quiet"
+    # Only override externally-managed Python protection when this process
+    # is already running inside a virtual environment.
+    flags = "--quiet"
+    if sys.prefix != getattr(sys, "base_prefix", sys.prefix):
+        flags += " --break-system-packages"
     if extra_args:
         flags += f" {extra_args}"
     return run_cmd(f"{sys.executable} -m pip install {pkg} {flags}")
@@ -83,7 +87,7 @@ def install_system_pkg(pkg, pkg_manager, check_cmd=None):
         print(f"  ✓ {pkg} already installed — skipping")
         return True
     print(f"  ↓ Installing {pkg}...")
-    return run_cmd(f"{pkg_manager} {pkg} -y 2>/dev/null || true")
+    return run_cmd(f"{pkg_manager} {pkg} -y 2>/dev/null")
 
 
 def install_python_deps():
@@ -247,6 +251,7 @@ def main():
         "kali":    setup_kali,
         "parrot":  setup_kali,
         "ubuntu":  setup_ubuntu,
+        "debian":  setup_ubuntu,
         "linux":   setup_ubuntu,
         "macos":   setup_macos,
         "windows": setup_windows,

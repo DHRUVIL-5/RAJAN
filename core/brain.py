@@ -123,15 +123,26 @@ class Brain:
             self.logger.thinking(f"[{task.agent.upper()}] {task.name}", "Brain")
 
             try:
-                # Run agent in ThreadPoolExecutor — prevents GIL blocking on Termux
-                with ThreadPoolExecutor(max_workers=1) as ex:
-                    future = ex.submit(agent.run_task, task.name)
-                    try:
-                        result = future.result(timeout=300)  # 5 min max per task
-                    except FuturesTimeout:
-                        result = "Task timed out after 5 minutes"
-                        self.logger.warning(f"Timeout: {task.name}", task.agent.upper())
+                # Run agent in a worker so the orchestration loop remains responsive.
+                ex = ThreadPoolExecutor(max_workers=1)
+                future = ex.submit(agent.run_task, task.name)
+                timed_out = False
+                try:
+                    result = future.result(timeout=300)  # 5 min wait limit per task
+                except FuturesTimeout:
+                    timed_out = True
+                    result = "Task timed out after 5 minutes"
+                    future.cancel()
+                    self.logger.warning(f"Timeout: {task.name}", task.agent.upper())
+                finally:
+                    # Do not block the coordinator after a timeout; Python
+                    # threads cannot be forcibly terminated, so the task is
+                    # failed rather than incorrectly reported as complete.
+                    ex.shutdown(wait=not timed_out, cancel_futures=True)
 
+                if timed_out:
+                    self.task_tree.mark_failed(task, result)
+                    continue
                 self.task_tree.mark_done(task, result or "")
                 self.agent_bus[task.agent] = result or ""
                 self._notify_other_agents(agent_map, task.agent, result)
@@ -184,6 +195,9 @@ class Brain:
         and inject new tasks if needed. This is the feedback loop.
         Plan → Execute → Analyze → Re-plan
         """
+        if self.feedback_cycle >= 3:
+            self.logger.info("Feedback cycle limit reached; no further replanning.", "Brain")
+            return
         self.feedback_cycle += 1
         self.logger.thinking(
             f"Feedback cycle #{self.feedback_cycle} — analyzing results for re-planning...",

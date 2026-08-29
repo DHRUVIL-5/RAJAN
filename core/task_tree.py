@@ -33,6 +33,7 @@ class TaskTree:
         self.tasks = []
         self.done_ids = set()
         self._id_counter = 0
+        self.max_dynamic_tasks = 50
 
     def _next_id(self):
         self._id_counter += 1
@@ -99,6 +100,17 @@ class TaskTree:
 
     def get_next_task(self):
         """Get highest priority ready task"""
+        # Failed or skipped prerequisites block descendants instead of
+        # allowing them to run with invalid or missing inputs.
+        by_id = {t.task_id: t for t in self.tasks}
+        for task in self.tasks:
+            if task.status == "pending" and any(
+                by_id.get(dep) and by_id[dep].status in ("failed", "skipped")
+                for dep in task.depends_on
+            ):
+                task.status = "skipped"
+                task.result = "Blocked by failed or skipped prerequisite"
+
         ready = [
             t for t in self.tasks
             if t.status == "pending" and t.is_ready(self.done_ids)
@@ -115,7 +127,7 @@ class TaskTree:
     def mark_failed(self, task, reason=""):
         task.status = "failed"
         task.result = reason
-        self.done_ids.add(task.task_id)  # still add so dependents can run
+        # Failed tasks are deliberately not added to done_ids.
 
     def mark_skipped(self, task):
         task.status = "skipped"
@@ -139,7 +151,19 @@ class TaskTree:
         return all(t.status in ("done", "failed", "skipped") for t in self.tasks)
 
     def add_dynamic_task(self, name, agent, priority=5, depends_on=None):
-        """Add task discovered during scanning (e.g. found new subdomain)"""
+        """Add a validated, non-duplicate task discovered during scanning."""
+        allowed_agents = {"recon", "scanner", "web", "osint", "exploit", "cloud", "reporter"}
+        if len(self.tasks) >= 19 + self.max_dynamic_tasks:
+            return None
+        name = str(name or "").strip()
+        agent = str(agent or "").strip().lower()
+        if not name or agent not in allowed_agents:
+            return None
+        normalized = " ".join(name.lower().split())
+        if any(" ".join(t.name.lower().split()) == normalized for t in self.tasks):
+            return None
+        valid_ids = {t.task_id for t in self.tasks}
+        depends_on = [d for d in (depends_on or []) if d in valid_ids]
         t = Task(self._next_id(), name, agent, priority, depends_on)
         self.tasks.append(t)
         if self.memory and self.session_id:

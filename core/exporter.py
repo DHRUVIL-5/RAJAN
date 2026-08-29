@@ -8,6 +8,7 @@ import json
 import csv
 import os
 import datetime
+import re
 
 
 class Exporter:
@@ -18,9 +19,10 @@ class Exporter:
 
     def _base_filename(self):
         session = self.memory.get_session(self.session_id)
-        target = session.get("target", "target") if session else "target"
+        target = str(session.get("target", "target") if session else "target")
+        safe_target = re.sub(r"[^A-Za-z0-9._-]+", "_", target).strip("._") or "target"
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        return f"reports/export_{target}_{ts}"
+        return f"reports/export_{safe_target}_{ts}"
 
     def export_json(self):
         """Export all findings + intel as JSON"""

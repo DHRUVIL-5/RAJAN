@@ -23,27 +23,24 @@ class WebAgent(BaseAgent):
         self.name = "WebAgent"
         self.payloads = PayloadLibrary()
         self.mitre = MITREMapper()
+        # Initialize the session before request paths are available. URL
+        # selection itself must not perform network I/O.
+        self._session = requests.Session()
         self.base_url = self._resolve_base_url()
         # Shared requests session — connection reuse, consistent SSL handling
-        self._session = requests.Session()
         self._session.headers.update({
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
             "Accept": "text/html,application/json,*/*"
         })
-        self._session.verify = False  # handles self-signed certs uniformly
+        self._session.verify = True
 
     def _resolve_base_url(self):
-        for scheme in ("https", "http"):
-            try:
-                requests.get(f"{scheme}://{self.target}",
-                             timeout=5, verify=False, allow_redirects=False)
-                return f"{scheme}://{self.target}"
-            except Exception:
-                continue
+        # Do not probe the target during object construction. The first
+        # ordinary request reports reachability without a constructor side effect.
         return f"https://{self.target}"
 
     def _get(self, path="", params=None, timeout=8):
-        url = f"{self.base_url}{path}"
+        url = path if str(path).startswith(("http://", "https://")) else f"{self.base_url}{path}"
         if not self.is_in_scope(url):
             return 0, "", {}
         if self.dry_run:
@@ -230,8 +227,10 @@ class WebAgent(BaseAgent):
             if not self.is_in_scope(js_url):
                 continue
             try:
-                r = self._session.get(js_url, timeout=8)
-                content = r.text[:100000]
+                status, content, _ = self._get(js_url, timeout=8)
+                if status == 0:
+                    continue
+                content = content[:100000]
                 for name, pat in patterns:
                     if re.search(pat, content):
                         found += 1

@@ -38,6 +38,9 @@ class ReconAgent(BaseAgent):
         """Unified requests-based GET with scope check + rate limiting"""
         if not self.is_in_scope(url):
             return None
+        if self.dry_run:
+            self.logger.info(f"[DRY RUN] GET {url}", "Recon")
+            return None
         self._rate_limit()
         try:
             r = _SESSION.get(url, timeout=timeout, allow_redirects=False)

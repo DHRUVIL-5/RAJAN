@@ -83,6 +83,8 @@ class Config:
         return d
 
     def set(self, *keys_and_value):
+        if len(keys_and_value) < 2 or any(not str(k).strip() for k in keys_and_value[:-1]):
+            raise ValueError("Config.set() requires at least one non-empty key and a value")
         keys = keys_and_value[:-1]
         value = keys_and_value[-1]
         d = self._data

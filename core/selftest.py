@@ -58,11 +58,16 @@ def run_selftest():
         # get_system_prompt returns core prompt when no user addon
         prompt = l.get_system_prompt()
         assert "RAJAN" in prompt
-        # With user addon
+        # With user addon, without mutating the persisted or live user config.
+        previous_addon = l.config.get("user_system_prompt")
         l.config["user_system_prompt"] = "Always be brief."
         prompt_with_addon = l.get_system_prompt()
         assert "Always be brief." in prompt_with_addon
         assert "RAJAN" in prompt_with_addon  # core still present
+        if previous_addon is None:
+            l.config.pop("user_system_prompt", None)
+        else:
+            l.config["user_system_prompt"] = previous_addon
 
     def test_llm_connectivity():
         """Test actual LLM API connection if configured"""

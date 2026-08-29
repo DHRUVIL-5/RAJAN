@@ -87,8 +87,14 @@ class OSINTAgent(BaseAgent):
         for bucket_url in buckets:
             if domain_short not in bucket_url:
                 continue
+            if self.dry_run:
+                self.logger.info(f"[DRY RUN] GET {bucket_url}", "OSINT")
+                continue
+            if not self.is_in_scope(bucket_url):
+                continue
+            self._rate_limit()
             try:
-                r = requests.get(bucket_url, timeout=5, verify=False)
+                r = requests.get(bucket_url, timeout=5, verify=True)
                 body = r.text[:500]
                 if "ListBucketResult" in body or "Contents" in body:
                     self.add_finding(
