@@ -607,8 +607,20 @@ def main():
     args = parser.parse_args()
 
     rajan = RAJAN()
-    rajan.boot()
-    rajan.run_cli(args)
+
+    # Explicit CLI commands must be usable on a fresh installation.  In
+    # particular, diagnostics and maintenance commands such as --selftest
+    # should not be blocked by the interactive LLM setup in boot().
+    cli_only = (
+        args.setup or args.tools or args.sessions or args.resume or
+        args.replay or args.notify_setup or args.prompt or args.selftest or
+        args.update or args.config or args.export or args.chain
+    )
+    if cli_only:
+        rajan.run_cli(args)
+    else:
+        rajan.boot()
+        rajan.run_cli(args)
 
 
 if __name__ == "__main__":
