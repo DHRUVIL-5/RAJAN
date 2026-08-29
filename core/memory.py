@@ -98,7 +98,7 @@ class Memory:
 
     def create_session(self, target, scope=""):
         import uuid
-        session_id = str(uuid.uuid4())[:8]
+        session_id = str(uuid.uuid4())
         now = datetime.datetime.now().isoformat()
         self.conn.execute(
             "INSERT INTO sessions (session_id, target, scope, started_at) VALUES (?,?,?,?)",
@@ -170,11 +170,12 @@ class Memory:
 
     def add_task(self, session_id, task, agent=""):
         now = datetime.datetime.now().isoformat()
-        self.conn.execute(
+        cursor = self.conn.execute(
             "INSERT INTO tasks (session_id,task,agent,created_at) VALUES (?,?,?,?)",
             (session_id, task, agent, now)
         )
         self.conn.commit()
+        return cursor.lastrowid
 
     def get_tasks(self, session_id, status=None):
         if status:

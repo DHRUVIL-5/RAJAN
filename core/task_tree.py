@@ -15,6 +15,7 @@ class Task:
         self.status = "pending"        # pending, running, done, skipped, failed
         self.result = ""
         self.subtasks = []
+        self.db_id = None
 
     def add_subtask(self, task):
         self.subtasks.append(task)
@@ -94,7 +95,7 @@ class TaskTree:
         # Save to memory
         if self.memory and self.session_id:
             for t in self.tasks:
-                self.memory.add_task(self.session_id, t.name, t.agent)
+                t.db_id = self.memory.add_task(self.session_id, t.name, t.agent)
 
         return self.tasks
 
@@ -123,15 +124,21 @@ class TaskTree:
         task.status = "done"
         task.result = result
         self.done_ids.add(task.task_id)
+        if self.memory and task.db_id is not None:
+            self.memory.update_task(task.db_id, "done", result)
 
     def mark_failed(self, task, reason=""):
         task.status = "failed"
         task.result = reason
+        if self.memory and task.db_id is not None:
+            self.memory.update_task(task.db_id, "failed", reason)
         # Failed tasks are deliberately not added to done_ids.
 
     def mark_skipped(self, task):
         task.status = "skipped"
         self.done_ids.add(task.task_id)
+        if self.memory and task.db_id is not None:
+            self.memory.update_task(task.db_id, "skipped", task.result)
 
     def stats(self):
         total = len(self.tasks)
@@ -167,5 +174,5 @@ class TaskTree:
         t = Task(self._next_id(), name, agent, priority, depends_on)
         self.tasks.append(t)
         if self.memory and self.session_id:
-            self.memory.add_task(self.session_id, name, agent)
+            t.db_id = self.memory.add_task(self.session_id, name, agent)
         return t

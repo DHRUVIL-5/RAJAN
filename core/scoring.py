@@ -67,7 +67,9 @@ def score_finding(title, description, proof="", has_poc=False):
 
     # Base CVSS score from vulnerability type
     cvss = 5.0  # default medium
-    for keyword, score in VULN_BASE_SCORES.items():
+    # Prefer the most specific phrase when multiple vulnerability keywords
+    # occur in one title or description.
+    for keyword, score in sorted(VULN_BASE_SCORES.items(), key=lambda item: len(item[0]), reverse=True):
         if keyword in title_lower:
             cvss = score
             break

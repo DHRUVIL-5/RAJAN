@@ -77,6 +77,9 @@ def run_selftest():
             print("  ⚠️  LLM not configured — skipping connectivity test")
             print("       Run: python3 rajan.py --setup")
             return
+        if os.environ.get("RAJAN_SELFTEST_LLM") != "1":
+            print("  ⚠️  External LLM check disabled (set RAJAN_SELFTEST_LLM=1 to opt in)")
+            return
         # Try a minimal API call
         provider = l.config.get("provider_name", "Unknown")
         response = l.quick_ask("Reply with exactly: RAJAN_OK")
