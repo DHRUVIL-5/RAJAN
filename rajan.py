@@ -50,7 +50,7 @@ DONATION_MSG = f"""
      RAJAN is free & open source — kept alive by donations.
      Even $1 helps keep development going! 🙏
      ➜ github.com/DHRUVIL-5/RAJAN#support
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{Colors.RESET}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{Colors.RESET}
 """
 
 HELP_TEXT = """
@@ -425,8 +425,8 @@ class RAJAN:
         elif ips:
             target = ips[0]
 
-        # Extract scope
-        scope_match = re.search(r'scope[:]\s]+([^\s,]+)', text, re.IGNORECASE)
+        # Extract scope (fix malformed regex)
+        scope_match = re.search(r'scope[:]\s*([^\s,]+)', text, re.IGNORECASE)
         if scope_match:
             scope = scope_match.group(1)
 
@@ -487,7 +487,7 @@ class RAJAN:
         if not session:
             print(f"  ❌ Session {session_id} not found")
             return
-        print(f"\n  ✅ Resuming session: {session_id}")
+        print(f"\n  ��� Resuming session: {session_id}")
         print(f"  Target: {session['target']}")
         print(f"  Started: {session['started_at']}\n")
         self.session_id = session_id
