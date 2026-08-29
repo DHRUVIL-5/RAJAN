@@ -45,7 +45,12 @@ class ReconAgent(BaseAgent):
         try:
             r = _SESSION.get(url, timeout=timeout, allow_redirects=False)
             return r
-        except Exception:
+        except Exception as e:
+            # Log the underlying error for easier debugging
+            try:
+                self.logger.warning(f"GET failed: {e}", "Recon")
+            except Exception:
+                pass
             return None
 
     def dns_and_whois(self):
@@ -64,8 +69,12 @@ class ReconAgent(BaseAgent):
                 hostname = socket.gethostbyaddr(ip)[0]
                 self.save_intel("dns", "hostname", hostname)
                 self.logger.success(f"Hostname: {hostname}", "Recon")
-            except Exception:
-                pass
+            except Exception as e:
+                # Non-fatal, just log for visibility
+                try:
+                    self.logger.info(f"Hostname lookup failed: {e}", "Recon")
+                except Exception:
+                    pass
         except Exception as e:
             self.logger.error(f"DNS failed: {e}", "Recon")
             return f"DNS failed: {e}"
@@ -141,8 +150,12 @@ class ReconAgent(BaseAgent):
                     found.append(full)
                     self.save_intel("subdomain", full, ip)
                     self.logger.success(f"Subdomain: {full} → {ip}", "Recon")
-            except Exception:
-                pass
+            except Exception as e:
+                # Log resolution errors instead of silently swallowing
+                try:
+                    self.logger.warning(f"Subdomain lookup failed for {full}: {e}", "Recon")
+                except Exception:
+                    pass
 
         self.logger.info(f"Found {len(found)} in-scope subdomains", "Recon")
         return f"Found {len(found)} subdomains: {', '.join(found[:10])}"
