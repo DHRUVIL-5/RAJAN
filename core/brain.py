@@ -40,23 +40,61 @@ class Brain:
         self.agent_bus = {}      # Agent-to-Agent shared message bus
         self.feedback_cycle = 0  # Re-plan cycles completed
         self.dry_run = False     # Dry run — no real HTTP requests
+        self.quick_mode = False  # Quick mode — critical checks only
+        # Signals the orchestrating thread that the session has ended, so the
+        # interrupt input loop can exit without waiting for the next keypress.
+        self.done_event = threading.Event()
 
     # ── Autonomous Session ────────────────────────────────────
 
     def start_autonomous(self, target, scope="", mode="auto"):
+        """Entry point (runs in the background thread)."""
         self.running = True
         self.paused = False
+        self.done_event.clear()
+        try:
+            self._run_autonomous(target, scope, mode)
+        except Exception as e:
+            self.logger.error(f"Autonomous session crashed: {e}", "Brain")
+        finally:
+            self.running = False
+            self.done_event.set()
+
+    def _run_autonomous(self, target, scope="", mode="auto"):
         self.scope = ScopeEnforcer(target, scope)
 
         self.logger.start(f"Autonomous session: {target}", "RAJAN")
         self.logger.info(f"Scope: {self.scope.describe()}", "RAJAN")
         self.logger.info(f"Mode: {'Auto 🤖' if mode=='auto' else 'Semi-auto 🧑'}", "RAJAN")
+        if self.quick_mode:
+            self.logger.info("Quick mode: only critical checks will run", "RAJAN")
         self.logger.divider()
 
         # Build initial task tree
         self.task_tree = TaskTree(target, scope, self.memory, self.session_id)
         tasks = self.task_tree.build_default_tree()
         self.logger.info(f"Task tree built — {len(tasks)} tasks planned", "Brain")
+
+        # Resume: restore tasks completed in a previous run of this session
+        restored = self.task_tree.restore_previous_progress()
+        if restored:
+            self.logger.info(
+                f"Resuming — {restored} tasks already completed in a previous run",
+                "Brain"
+            )
+
+        # Quick mode: skip non-critical tasks (priority > 3), keep reporting
+        if self.quick_mode:
+            skipped_quick = 0
+            for t in self.task_tree.tasks:
+                if t.agent != "reporter" and t.priority > 3 and t.status == "pending":
+                    t.status = "skipped"
+                    t.result = "Skipped (quick mode)"
+                    self.task_tree.done_ids.add(t.task_id)
+                    if t.db_id is not None and self.memory:
+                        self.memory.update_task(t.db_id, "skipped", "Skipped (quick mode)")
+                    skipped_quick += 1
+            self.logger.info(f"Quick mode — {skipped_quick} lower-priority tasks skipped", "Brain")
 
         # Create agents with injected scope + bus + scoring
         from agents.recon import ReconAgent
@@ -108,16 +146,21 @@ class Brain:
             # Semi-auto approval
             if mode == "semi":
                 self.logger.info(f"Next: [{task.agent.upper()}] {task.name}", "Brain")
-                ans = input("\n  Run? (y/n/skip/stop): ").strip().lower()
+                try:
+                    ans = input("\n  Run? (y/n/skip/stop): ").strip().lower()
+                except EOFError:
+                    ans = "stop"
                 if ans == "stop":
                     break
                 elif ans in ("n", "skip"):
                     self.task_tree.mark_skipped(task)
+                    self.current_task = None
                     continue
 
             agent = agent_map.get(task.agent)
             if not agent:
                 self.task_tree.mark_skipped(task)
+                self.current_task = None
                 continue
 
             self.logger.thinking(f"[{task.agent.upper()}] {task.name}", "Brain")
@@ -142,30 +185,40 @@ class Brain:
 
                 if timed_out:
                     self.task_tree.mark_failed(task, result)
-                    continue
-                self.task_tree.mark_done(task, result or "")
-                self.agent_bus[task.agent] = result or ""
-                self._notify_other_agents(agent_map, task.agent, result)
-                self.logger.success(f"Done: {task.name}", task.agent.upper())
+                    self.logger.error(f"Failed: {task.name} — {result}", task.agent.upper())
+                else:
+                    self.task_tree.mark_done(task, result or "")
+                    self.agent_bus[task.agent] = result or ""
+                    self._notify_other_agents(agent_map, task.agent, result)
+                    self.logger.success(f"Done: {task.name}", task.agent.upper())
 
-                if stats.get("done", 0) > 0 and stats.get("done", 0) % 5 == 0:
-                    self._feedback_replan(target, agent_map)
+                    if stats.get("done", 0) > 0 and stats.get("done", 0) % 5 == 0:
+                        self._feedback_replan(target, agent_map)
 
             except Exception as e:
                 self.task_tree.mark_failed(task, str(e))
                 self.logger.error(f"Failed: {task.name} — {e}", task.agent.upper())
                 # Don't crash the whole session on one task failure
+            finally:
+                # The task is no longer "running" — clear it so !skip and the
+                # progress bar don't operate on a finished task.
+                self.current_task = None
 
             time.sleep(0.3)
 
         # ── Done ──
         self.running = False
-        findings = self.memory.get_findings(self.session_id)
-        counts = self.memory.count_findings(self.session_id)
-        self.memory.update_session_status(self.session_id, "complete")
+        # Only mark "complete" if everything actually finished; a user !quit
+        # or crash mid-run leaves the session resumable.
+        complete = bool(self.task_tree) and self.task_tree.is_complete()
+        self.memory.update_session_status(
+            self.session_id, "complete" if complete else "interrupted"
+        )
 
         self.logger.divider("═")
-        self.logger.done("All tasks complete!")
+        self.logger.done("All tasks complete!" if complete else "Session stopped — progress saved, you can resume it.")
+        findings = self.memory.get_findings(self.session_id)
+        counts = self.memory.count_findings(self.session_id)
         if findings:
             for f in findings:
                 self.logger.finding(f["title"], f["severity"], f.get("location", ""))
@@ -245,9 +298,10 @@ class Brain:
                             t.get("agent", "web"),
                             t.get("priority", 5)
                         )
-                        self.logger.info(
-                            f"Re-plan: added task '{t['task']}'", "Brain"
-                        )
+                        if injected:
+                            self.logger.info(
+                                f"Re-plan: added task '{t['task']}'", "Brain"
+                            )
         except Exception:
             pass  # LLM returned non-JSON — skip
 
@@ -289,34 +343,24 @@ class Brain:
 
     def _render_progress(self, target, stats, findings_count=0):
         """
-        Clean progress display using rich — works on narrow Termux screens.
-        Uses \r carriage return for in-place updates (rich handles this safely).
+        Clean in-place progress line. Fixed width so the \r update never
+        leaves stale characters on the terminal.
         """
-        try:
-            from rich.console import Console
-            if not hasattr(self, '_console'):
-                self._console = Console()
-            console = self._console
-            total = stats.get("total", 1)
-            done = stats.get("done", 0)
-            failed = stats.get("failed", 0)
-            pct = int((done / total) * 100) if total else 0
-            bar_len = 20
-            filled = "█" * int(bar_len * pct / 100)
-            empty = "░" * (bar_len - len(filled))
-            current = (self.current_task.name[:28] + "…") \
-                      if self.current_task and len(self.current_task.name) > 28 \
-                      else (self.current_task.name if self.current_task else "waiting")
-            line = (f"[{filled}{empty}] {pct}% "
-                    f"✅{done} ❌{failed} 🔴{findings_count} ▶ {current}")
-            console.print(line, end="\r", highlight=False)
-        except ImportError:
-            # Fallback if rich not installed
-            total = stats.get("total", 1)
-            done = stats.get("done", 0)
-            pct = int((done / total) * 100) if total else 0
-            bar = "█" * int(20 * pct / 100) + "░" * (20 - int(20 * pct / 100))
-            print(f"  [{bar}] {pct}% {done}/{total} tasks | findings: {findings_count}", end="\r", flush=True)
+        total = stats.get("total", 1)
+        done = stats.get("done", 0)
+        failed = stats.get("failed", 0)
+        pct = int((done / total) * 100) if total else 0
+        bar_len = 20
+        filled = "█" * int(bar_len * pct / 100)
+        empty = "░" * (bar_len - len(filled))
+        if self.current_task and len(self.current_task.name) > 28:
+            current = self.current_task.name[:28] + "…"
+        else:
+            current = self.current_task.name if self.current_task else "waiting"
+        line = (f"  [{filled}{empty}] {pct}% "
+                f"✅{done} ❌{failed} 🔴{findings_count} ▶ {current}")
+        # Pad to a fixed width so shorter updates fully overwrite the line
+        print(line.ljust(70), end="\r", flush=True)
 
     # ── Interrupt Chat ────────────────────────────────────────
 
@@ -346,16 +390,24 @@ class Brain:
             self._print_findings_so_far()
         elif ml.startswith("!focus on "):
             self._reprioritize(ml.replace("!focus on ", "").strip())
-        elif ml == "!skip" and self.current_task:
-            if self.current_task.status == "running":
-                self.logger.warning(
-                    "Cannot skip a task that is already running; wait for it to finish.",
+        elif ml == "!skip":
+            # The task currently running cannot be interrupted (Python
+            # threads), so skip the NEXT task that would run.
+            if self.current_task and self.current_task.status == "running":
+                self.logger.info(
+                    "A task is running — it will finish first; skipping the next task...",
                     "RAJAN"
                 )
+            if self.task_tree:
+                nxt = self.task_tree.get_next_task()
+                if nxt:
+                    self.task_tree.mark_skipped(nxt)
+                    self.logger.info(f"Skipped: {nxt.name}", "RAJAN")
+                else:
+                    self.logger.warning("No pending task to skip.", "RAJAN")
             else:
-                self.task_tree.mark_skipped(self.current_task)
-                self.logger.info(f"Skipped: {self.current_task.name}", "RAJAN")
-        elif ml in ("!quit", "!exit"):
+                self.logger.warning("No pending task to skip.", "RAJAN")
+        elif ml in ("!quit", "!exit", "quit", "exit"):
             self.running = False
             self.logger.info("Saving and quitting...", "RAJAN")
         else:
@@ -402,6 +454,8 @@ class Brain:
             return
         count = 0
         for t in self.task_tree.tasks:
+            if t.status != "pending":
+                continue
             if keyword in t.name.lower() or keyword in t.agent.lower():
                 t.priority = 1
                 count += 1

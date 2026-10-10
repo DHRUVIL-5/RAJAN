@@ -223,6 +223,19 @@ class LLMConnector:
         return core
 
     def setup_interactive(self):
+        """Interactive provider setup. Returns False on cancel/EOF (e.g. when
+        stdin is closed in a non-interactive run) instead of crashing."""
+        try:
+            return self._setup_interactive_impl()
+        except EOFError:
+            print("\n  ❌ Setup cancelled (no interactive input).")
+            print("     Run 'python3 rajan.py --setup' interactively later.")
+            return False
+        except KeyboardInterrupt:
+            print("\n  ❌ Setup cancelled.")
+            return False
+
+    def _setup_interactive_impl(self):
         print("\n╔══════════════════════════════════════════════════════╗")
         print("║         RAJAN — AI Provider Setup                   ║")
         print("╠══════════════════════════════════════════════════════╣")
@@ -303,7 +316,11 @@ class LLMConnector:
         """Let user update just the custom system prompt addon"""
         print(f"\n  Current custom prompt: \"{self.config.get('user_system_prompt', '(none)')}\"")
         print(f"  Enter new prompt (or Enter to clear):")
-        new_prompt = input("  > ").strip()
+        try:
+            new_prompt = input("  > ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n  ❌ Cancelled — prompt unchanged.")
+            return
         self.config["user_system_prompt"] = new_prompt
         self._save_config()
         print(f"  ✅ Updated!")

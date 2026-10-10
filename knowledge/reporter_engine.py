@@ -4,16 +4,25 @@ Generates professional reports in Markdown AND HTML
 """
 
 import datetime
+import html as _html
 import os
 
 from knowledge.mitre import MITREMapper
 from knowledge.methodology import BugBountyGuide
 
 
+def esc(value):
+    """HTML-escape dynamic content (finding text is attacker-influenced)."""
+    return _html.escape(str(value if value is not None else ""))
+
+
 def generate_html_report(session, findings, intel, counts):
     mitre = MITREMapper()
     date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    target = session.get("target", "Unknown")
+    # Escape dynamic values once up front (finding text is attacker-influenced)
+    target = esc(session.get("target", "Unknown"))
+    session_id = esc(session.get('session_id', 'N/A'))
+    scope = esc(session.get('scope', 'Full target'))
 
     sev_colors = {
         "CRITICAL": "#ff4444",
@@ -30,30 +39,31 @@ def generate_html_report(session, findings, intel, counts):
 
     findings_html = ""
     for i, f in enumerate(findings, 1):
-        sev = f["severity"].upper()
+        sev = str(f["severity"]).upper()
         color = sev_colors.get(sev, "#888")
         bg = sev_bg.get(sev, "#fff")
-        mitre_info = mitre.get_technique(f.get("mitre_technique", ""))
+        mitre_id = f.get("mitre_technique", "")
+        mitre_info = mitre.get_technique(mitre_id)
         mitre_section = ""
         if mitre_info:
             mitre_section = f"""
             <div class="mitre-box">
-                <strong>🛡️ MITRE ATT&CK:</strong> {f.get('mitre_technique','')} —
-                {mitre_info['name']} ({mitre_info['tactic']})<br>
-                <strong>Remediation:</strong> {mitre_info['mitigation']}
+                <strong>🛡️ MITRE ATT&CK:</strong> {esc(mitre_id)} —
+                {esc(mitre_info['name'])} ({esc(mitre_info['tactic'])})<br>
+                <strong>Remediation:</strong> {esc(mitre_info['mitigation'])}
             </div>"""
 
         findings_html += f"""
         <div class="finding" style="border-left: 5px solid {color}; background: {bg};">
             <div class="finding-header">
                 <span class="finding-num">#{i}</span>
-                <span class="finding-title">{f['title']}</span>
-                <span class="severity-badge" style="background:{color}">{sev}</span>
+                <span class="finding-title">{esc(f['title'])}</span>
+                <span class="severity-badge" style="background:{color}">{esc(sev)}</span>
             </div>
             <table class="finding-table">
-                <tr><td><strong>Location</strong></td><td>{f.get('location','N/A')}</td></tr>
-                <tr><td><strong>Description</strong></td><td>{f['description']}</td></tr>
-                <tr><td><strong>Proof/PoC</strong></td><td><code>{f.get('proof','N/A')}</code></td></tr>
+                <tr><td><strong>Location</strong></td><td>{esc(f.get('location') or 'N/A')}</td></tr>
+                <tr><td><strong>Description</strong></td><td>{esc(f.get('description') or '')}</td></tr>
+                <tr><td><strong>Proof/PoC</strong></td><td><code>{esc(f.get('proof') or 'N/A')}</code></td></tr>
             </table>
             {mitre_section}
         </div>"""
@@ -65,7 +75,8 @@ def generate_html_report(session, findings, intel, counts):
             _, itype, key, value, _ = row
         else:
             itype, key, value = row
-        intel_by_type.setdefault(itype, []).append(f"<tr><td>{key}</td><td>{value[:80]}</td></tr>")
+        intel_by_type.setdefault(esc(itype), []).append(
+            f"<tr><td>{esc(key)}</td><td>{esc(str(value)[:80])}</td></tr>")
     for itype, rows in intel_by_type.items():
         intel_html += f"""
         <h3>{itype.upper()}</h3>
@@ -164,11 +175,11 @@ def generate_html_report(session, findings, intel, counts):
   </div>
   <div class="meta-card">
     <div class="label">Session ID</div>
-    <div class="value" style="font-size:1em">{session.get('session_id','N/A')}</div>
+    <div class="value" style="font-size:1em">{session_id}</div>
   </div>
   <div class="meta-card">
     <div class="label">Scope</div>
-    <div class="value" style="font-size:1em">{session.get('scope','Full target')}</div>
+    <div class="value" style="font-size:1em">{scope}</div>
   </div>
   <div class="meta-card">
     <div class="label">Critical / High</div>
@@ -234,18 +245,25 @@ def generate_markdown_report(session, findings, intel, counts, llm=None):
 
     sev_emoji = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🟢"}
 
-    # Executive summary
+    # Executive summary — fall back to generated text when the LLM is
+    # unavailable or returns an error (error strings must not end up in reports)
+    default_summary = (
+        f"Security assessment of {target} completed on {date}. "
+        f"A total of {len(findings)} vulnerabilities were identified. "
+        f"Immediate remediation is recommended for Critical and High severity findings."
+    )
+    exec_summary = default_summary
     if llm and findings:
-        exec_summary = llm.quick_ask(
-            f"Write a 3-sentence executive summary for a penetration test on {target}. "
-            f"Findings include: {[f['title'] for f in findings[:5]]}. Be professional."
-        )
-    else:
-        exec_summary = (
-            f"Security assessment of {target} completed on {date}. "
-            f"A total of {len(findings)} vulnerabilities were identified. "
-            f"Immediate remediation is recommended for Critical and High severity findings."
-        )
+        try:
+            if llm.is_configured():
+                resp = llm.quick_ask(
+                    f"Write a 3-sentence executive summary for a penetration test on {target}. "
+                    f"Findings include: {[f['title'] for f in findings[:5]]}. Be professional."
+                )
+                if resp and not str(resp).strip().startswith("❌"):
+                    exec_summary = str(resp).strip()
+        except Exception:
+            pass
 
     md = f"""# 🔐 RAJAN Penetration Test Report
 
@@ -284,20 +302,24 @@ def generate_markdown_report(session, findings, intel, counts, llm=None):
         md += "_No confirmed vulnerabilities were found during this assessment._\n\n"
     else:
         for i, f in enumerate(findings, 1):
-            sev = f["severity"].upper()
+            sev = str(f.get("severity") or "LOW").upper()
             emoji = sev_emoji.get(sev, "⚪")
-            mitre_id = f.get("mitre_technique", "")
+            mitre_id = f.get("mitre_technique", "") or ""
             mitre_info = mitre.get_technique(mitre_id)
             remediation = mitre_info["mitigation"] if mitre_info else "Follow OWASP guidelines."
+            mitre_cell = (
+                f"[{mitre_id}](https://attack.mitre.org/techniques/{mitre_id.replace('.', '/')})"
+                if mitre_id else "N/A"
+            )
 
             md += f"""### {i}. {f['title']} {emoji}
 
 | Field | Detail |
 |-------|--------|
 | **Severity** | {sev} |
-| **Location** | `{f.get('location','N/A')}` |
-| **MITRE ATT&CK** | [{mitre_id}]({f'https://attack.mitre.org/techniques/{mitre_id.replace(".","/")}'}) |
-| **Found at** | {f.get('found_at','N/A')} |
+| **Location** | `{f.get('location') or 'N/A'}` |
+| **MITRE ATT&CK** | {mitre_cell} |
+| **Found at** | {f.get('found_at') or 'N/A'} |
 
 **Description:** {f['description']}
 
@@ -354,8 +376,12 @@ def generate_markdown_report(session, findings, intel, counts, llm=None):
 
 def save_reports(session, findings, intel, counts, llm=None):
     """Save both HTML and MD reports, return filenames"""
+    import re as _re
     os.makedirs("reports", exist_ok=True)
-    target = session.get("target", "target")
+    # Sanitize target for use in a filename (targets may contain ':' or other
+    # path-hostile characters)
+    raw_target = str(session.get("target") or "target")
+    target = _re.sub(r"[^A-Za-z0-9._-]+", "_", raw_target).strip("._") or "target"
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     base = f"reports/report_{target}_{timestamp}"
 

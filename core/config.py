@@ -4,6 +4,7 @@ Persistent user settings — survives sessions
 Stored in memory/config.json
 """
 
+import copy
 import json
 import os
 import sys
@@ -50,15 +51,18 @@ class Config:
         self._data = self._load()
 
     def _load(self):
+        # Deep-copy the defaults so that mutating nested values (e.g. via
+        # set()) never corrupts the module-level DEFAULT_CONFIG shared by all
+        # Config instances in the process.
         if os.path.exists(self.PATH):
             try:
                 with open(self.PATH) as f:
                     saved = json.load(f)
                 # Deep merge with defaults
-                return self._merge(DEFAULT_CONFIG, saved)
+                return self._merge(copy.deepcopy(DEFAULT_CONFIG), saved)
             except Exception as exc:
                 print(f"Warning: could not read {self.PATH}: {exc}; using defaults.", file=sys.stderr)
-        return self._merge({}, DEFAULT_CONFIG)
+        return copy.deepcopy(DEFAULT_CONFIG)
 
     def _merge(self, base, override):
         result = dict(base)

@@ -211,21 +211,16 @@ class ChainAnalyzer:
 
             current_sev = finding.get("severity", "LOW")
             if sev_rank.get(current_sev, 0) < sev_rank.get(boost_to, 0):
-                # Update in DB
+                # Update in DB (thread-safe memory method)
                 try:
-                    self.memory.conn.execute(
-                        "UPDATE findings SET severity=?, description=? "
-                        "WHERE id=? AND session_id=?",
-                        (
-                            boost_to,
-                            finding["description"] +
-                            f"\n[Chain Boost] Severity elevated to {boost_to} "
-                            f"because this finding is part of chain: '{chain['name']}'",
-                            finding["id"],
-                            self.session_id
-                        )
+                    self.memory.update_finding_severity(
+                        finding["id"],
+                        self.session_id,
+                        boost_to,
+                        finding["description"] +
+                        f"\n[Chain Boost] Severity elevated to {boost_to} "
+                        f"because this finding is part of chain: '{chain['name']}'"
                     )
-                    self.memory.conn.commit()
                     self.logger.info(
                         f"Chain boost: '{finding['title']}' "
                         f"{current_sev}→{boost_to} (chain: {chain['name']})",
@@ -267,25 +262,35 @@ class ChainAnalyzer:
                 self._boost_chain_findings(findings, chain)
 
         # AI-powered chain discovery — finds chains not in hardcoded list
-        finding_summary = [
-            f"{f['title']} [{f['severity']}]" for f in findings
-        ]
-        ai_analysis = self.llm.quick_ask(
-            f"You are a senior penetration tester. Given these vulnerabilities found on a target:\n"
-            f"{chr(10).join(finding_summary)}\n\n"
-            f"Identify any 2-4 step attack chains that combine these vulnerabilities "
-            f"for higher impact. For each chain: name it, explain the steps, "
-            f"and state the final impact. Be specific and technical. "
-            f"If no chains possible, say so."
-        )
+        if self.llm.is_configured():
+            finding_summary = [
+                f"{f['title']} [{f['severity']}]" for f in findings
+            ]
+            ai_analysis = self.llm.quick_ask(
+                f"You are a senior penetration tester. Given these vulnerabilities found on a target:\n"
+                f"{chr(10).join(finding_summary)}\n\n"
+                f"Identify any 2-4 step attack chains that combine these vulnerabilities "
+                f"for higher impact. For each chain: name it, explain the steps, "
+                f"and state the final impact. Be specific and technical. "
+                f"If no chains possible, say so."
+            )
+            if ai_analysis and not str(ai_analysis).strip().startswith("❌"):
+                self.logger.info(f"\n  🔗 AI Chain Analysis:\n  {ai_analysis}", "ChainAnalyzer")
+            else:
+                self.logger.info("AI chain analysis unavailable (LLM error).", "ChainAnalyzer")
+        else:
+            self.logger.info("AI chain analysis skipped (LLM not configured).", "ChainAnalyzer")
 
-        self.logger.info(f"\n  🔗 AI Chain Analysis:\n  {ai_analysis}", "ChainAnalyzer")
-
-        # Save chains to memory
+        # Save chains to memory (deduped — analyze() may run more than once,
+        # e.g. automatically at session end and again via --chain)
+        existing_titles = {f.get("title", "") for f in self.memory.get_findings(self.session_id)}
         for chain in matched_chains:
+            chain_title = f"[CHAIN] {chain['name']}"
+            if chain_title in existing_titles:
+                continue
             self.memory.add_finding(
                 self.session_id,
-                f"[CHAIN] {chain['name']}",
+                chain_title,
                 chain["impact"],
                 f"Vulnerability chain: {chain['description']}\n"
                 f"Steps: {' → '.join(chain['steps'])}",
@@ -293,6 +298,7 @@ class ChainAnalyzer:
                 f"Requires: {', '.join(chain['requires'])}",
                 chain["mitre"][0] if chain["mitre"] else "T1190"
             )
+            existing_titles.add(chain_title)
 
         return matched_chains
 

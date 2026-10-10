@@ -50,7 +50,8 @@ class OSINTAgent(BaseAgent):
             f"What are the best Google dork queries to find sensitive files "
             f"or admin panels for {self.target}? Give 5 targeted dorks."
         )
-        self.logger.info(analysis, "OSINT")
+        if analysis and not str(analysis).strip().startswith("❌"):
+            self.logger.info(analysis, "OSINT")
         return f"Generated {len(dorks)} dorks"
 
     def github_leak_check(self):
@@ -84,13 +85,18 @@ class OSINTAgent(BaseAgent):
             f"https://{domain_short}-dev.s3.amazonaws.com",
             f"https://storage.googleapis.com/{domain_short}",
         ]
+        provider_hosts = ("s3.amazonaws.com", "storage.googleapis.com")
         for bucket_url in buckets:
-            if domain_short not in bucket_url:
+            host = urllib.parse.urlsplit(bucket_url).hostname or ""
+            # Guard: only probe target-derived buckets on known providers.
+            # (Bucket hosts are derived from the authorized target, so the
+            # generic scope enforcer — which only knows user-specified
+            # patterns — would block all of them and make this dead code.)
+            if domain_short not in host or not any(
+                    p in host for p in provider_hosts):
                 continue
             if self.dry_run:
                 self.logger.info(f"[DRY RUN] GET {bucket_url}", "OSINT")
-                continue
-            if not self.is_in_scope(bucket_url):
                 continue
             self._rate_limit()
             try:

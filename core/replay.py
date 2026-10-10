@@ -34,7 +34,10 @@ def replay_session(memory, session_id, speed=1.0):
     print(f"  Speed: {speed}x")
     print(f"{'═' * 55}{Colors.RESET}\n")
 
-    input("  Press Enter to start replay...")
+    try:
+        input("  Press Enter to start replay...")
+    except EOFError:
+        pass  # stdin closed (e.g. piped) — just start the replay
     print()
 
     level_icons = {
@@ -89,11 +92,11 @@ def list_sessions_for_replay(memory):
         print("  No sessions found.")
         return None
 
-    print(f"\n  {'#':<4} {'ID':<10} {'Target':<30} {'Status':<12} {'Date'}")
-    print(f"  {'─' * 70}")
+    print(f"\n  {'#':<4} {'ID':<38} {'Target':<24} {'Status':<12} {'Date'}")
+    print(f"  {'─' * 84}")
     for i, (sid, target, status, started) in enumerate(sessions, 1):
         date = started.split("T")[0] if started else "?"
         status_icon = "✅" if status == "complete" else "🔄" if status == "active" else "⚠️"
-        print(f"  {i:<4} {sid:<10} {target:<30} {status_icon} {status:<10} {date}")
+        print(f"  {i:<4} {sid:<38} {target:<24} {status_icon} {status:<10} {date}")
     print()
     return sessions

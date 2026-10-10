@@ -5,7 +5,14 @@ __pycache__/
 venv/
 env/
 memory/rajan.db
+memory/*.db
+memory/*.db-wal
+memory/*.db-shm
 memory/llm_config.json
+memory/config.json
+memory/notify_config.json
+.venv/
+.venv-test/
 logs/
 reports/
 sessions/

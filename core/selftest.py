@@ -217,7 +217,7 @@ def run_selftest():
 
     print("\n  Testing knowledge base...")
     test("MITRE ATT&CK (21 techniques)", test_mitre)
-    test("CVE Database (19 CVEs)", test_cve_db)
+    test("CVE Database (37 CVEs)", test_cve_db)
     test("Payload Library (10 categories)", test_payloads)
     test("Methodology & Severity", test_methodology)
 

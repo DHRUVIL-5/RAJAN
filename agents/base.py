@@ -83,7 +83,15 @@ class BaseAgent:
         return self.llm.quick_ask(question)
 
     def add_dynamic_task(self, task_tree, name, priority=5):
-        """Add a new task discovered during work"""
-        if task_tree:
-            task_tree.add_dynamic_task(name, self.name.lower(), priority)
+        """Add a new task discovered during work. Returns the Task or None."""
+        if not task_tree:
+            return None
+        # Map agent class name (e.g. "WebAgent") to its task-tree key ("web")
+        agent_key = self.name[:-5].lower() if self.name.endswith("Agent") else self.name.lower()
+        added = task_tree.add_dynamic_task(name, agent_key, priority)
+        if added:
             self.logger.info(f"New task discovered: {name}", self.name)
+        else:
+            self.logger.info(
+                f"Discarded duplicate/invalid dynamic task: {name}", self.name)
+        return added

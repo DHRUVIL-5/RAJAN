@@ -174,12 +174,13 @@ class RAJAN:
         if args.target:
             scope = args.scope or ""
             mode = "semi" if args.semi else "auto"
-            if args.quick:
-                print(f"  ⚡ Quick mode enabled")
+            quick = bool(args.quick)
+            if quick:
+                print(f"  ⚡ Quick mode enabled — only critical checks will run")
             dry = getattr(args, 'dry_run', False)
             if dry:
                 print(f"  🔍 DRY RUN mode — no real HTTP requests will be made")
-            self._start_autonomous(args.target, scope, mode, dry_run=dry)
+            self._start_autonomous(args.target, scope, mode, dry_run=dry, quick=quick)
             return
 
         # Default: interactive
@@ -240,10 +241,7 @@ class RAJAN:
 
         # Resume session
         if "resume" in t:
-            parts = text.split()
-            sid = parts[-1] if len(parts) > 1 and len(parts[-1]) == 8 else None
-            if not sid:
-                sid = self.memory.get_last_session()
+            sid = self._extract_session_id(text) or self.memory.get_last_session()
             if sid:
                 self._resume_session(sid)
             else:
@@ -261,8 +259,11 @@ class RAJAN:
             return None
 
         # Autonomous scan — detect target in message
+        # Note: bare "test" is intentionally NOT a scan keyword — it substring-
+        # matches "selftest", "latest", "what do I test for..." and hijacked
+        # unrelated commands. "pentest" and explicit phrases are kept instead.
         scan_keywords = [
-            "scan", "hack", "test", "pentest", "bug bounty",
+            "scan", "hack", "pentest", "bug bounty",
             "find vuln", "find vulnerability", "check for vuln",
             "start working on", "attack", "recon"
         ]
@@ -281,8 +282,7 @@ class RAJAN:
             from core.replay import list_sessions_for_replay, replay_session
             sessions = list_sessions_for_replay(self.memory)
             if sessions:
-                parts = text.split()
-                sid = next((p for p in parts if len(p) == 8), None)
+                sid = self._extract_session_id(text)
                 if not sid:
                     try:
                         num = int(input("  Select session number: ").strip()) - 1
@@ -290,7 +290,12 @@ class RAJAN:
                     except Exception:
                         sid = sessions[0][0]
                 speed_input = input("  Speed (1=normal, 2=fast, 0=instant): ").strip()
-                speed = float(speed_input) if speed_input else 1.0
+                try:
+                    speed = float(speed_input) if speed_input else 1.0
+                except ValueError:
+                    speed = 1.0
+                if speed < 0:
+                    speed = 0
                 replay_session(self.memory, sid, speed)
             return None
 
@@ -330,16 +335,18 @@ class RAJAN:
             print(f"  Custom prompt: {user_p[:80] if user_p else '(none)'}\n")
             return None
 
-        # Self-test
-        if any(kw in t for kw in ["selftest", "self test", "self-test", "test", "check", "verify"]):
-            from core.selftest import run_selftest
-            run_selftest()
-            return None
-
-        # Check for updates
+        # Check for updates — must come BEFORE the selftest branch, otherwise
+        # the bare "check" keyword below steals "check for updates".
         if any(kw in t for kw in ["update", "check update", "new version"]):
             from core.selftest import check_update
             check_update()
+            return None
+
+        # Self-test (bare "test"/"check" substrings are too greedy for NLP
+        # routing — e.g. "what should I check for SQLi?" would run a selftest)
+        if any(kw in t for kw in ["selftest", "self test", "self-test", "verify rajan", "check rajan"]):
+            from core.selftest import run_selftest
+            run_selftest()
             return None
 
         # Email notification setup
@@ -350,19 +357,40 @@ class RAJAN:
 
         # CVE lookup
         if t.startswith("cve ") or "look up cve" in t:
-            query = text.split(" ", 1)[-1].strip()
+            if "look up cve" in t:
+                query = text.split("cve", 1)[-1].strip()
+            else:
+                query = text.split(" ", 1)[-1].strip()
             from knowledge.cve_db import CVEDatabase
             db = CVEDatabase()
             db.print_search_results(query)
             return None
 
-        # Payload library
-        if t.startswith("payload") or t.startswith("payloads"):
-            parts = text.split()
+        # Payload library — "payloads xss", "payload sqli" or natural
+        # phrasings like "show me XSS payloads"
+        if "payload" in t or "payloads" in t:
             from knowledge.payloads import PayloadLibrary
             lib = PayloadLibrary()
-            if len(parts) > 1:
-                lib.print_category(parts[1])
+            aliases = {
+                "xss": "xss",
+                "sqli": "sqli", "sql": "sqli",
+                "ssrf": "ssrf",
+                "traversal": "path_traversal", "path": "path_traversal",
+                "lfi": "lfi",
+                "xxe": "xxe",
+                "command": "command_injection", "cmd": "command_injection",
+                "redirect": "open_redirect",
+                "ssti": "ssti",
+                "jwt": "jwt",
+            }
+            cat = None
+            for word in text.lower().split():
+                word = word.strip(".,!?:;\"'")
+                if word in aliases:
+                    cat = aliases[word]
+                    break
+            if cat:
+                lib.print_category(cat)
             else:
                 lib.print_all()
             return None
@@ -391,7 +419,8 @@ class RAJAN:
             domains = re.findall(r'\b(?:[a-zA-Z0-9]+\.)+[a-zA-Z]{2,}\b', text)
             if domains:
                 target_hint = domains[0]
-            guide.print_checklist("web", target_hint)
+            method_type = "network" if "network" in t else "web"
+            guide.print_checklist(method_type, target_hint)
             return None
 
         # Severity guide
@@ -404,6 +433,17 @@ class RAJAN:
         self.logger.thinking("Processing your question...", "RAJAN")
         response = self.brain.chat(text, self.session_id)
         return response
+
+    def _extract_session_id(self, text):
+        """Pull a session id out of free text (full or 8-char UUID form).
+        Returns None if no token looks like a session id."""
+        import re
+        for part in reversed(text.split()):
+            if (re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", part, re.I)
+                    or re.fullmatch(r"[0-9a-f]{32}", part, re.I)
+                    or re.fullmatch(r"[0-9a-f]{8}", part, re.I)):
+                return part
+        return None
 
     def _extract_scan_params(self, text):
         """Extract target, scope, mode from natural language"""
@@ -436,19 +476,31 @@ class RAJAN:
 
         return target, scope, mode
 
-    def _start_autonomous(self, target, scope="", mode="auto", dry_run=False):
-        """Start autonomous hacking session"""
-        print(f"\n  {Colors.GREEN}RAJAN: Starting {'[DRY RUN] ' if dry_run else ''}autonomous session on {Colors.BOLD}{target}{Colors.RESET}")
+    def _start_autonomous(self, target, scope="", mode="auto", dry_run=False,
+                          quick=False, session_id=None):
+        """Start (or resume) an autonomous hacking session.
+
+        session_id=None creates a new session; passing an existing id resumes
+        that session in place (task progress is restored from memory).
+        """
+        resuming = session_id is not None
+        if not resuming:
+            session_id = self.memory.create_session(target, scope)
+        print(f"\n  {Colors.GREEN}RAJAN: Starting {'[DRY RUN] ' if dry_run else ''}{'[RESUME] ' if resuming else ''}autonomous session on {Colors.BOLD}{target}{Colors.RESET}")
         print(f"  {Colors.DIM}Scope: {scope or 'Full target'} | Mode: {mode}{Colors.RESET}")
         if dry_run:
             print(f"  {Colors.YELLOW}⚠️  Dry run — no real HTTP requests will be made{Colors.RESET}")
-        print(f"\n  {Colors.YELLOW}💡 Interrupt commands: !status !stop !focus on [area]{Colors.RESET}\n")
+        if mode == "semi":
+            print(f"\n  {Colors.YELLOW}💡 Semi-auto mode — RAJAN will ask before each task (y/n/skip/stop){Colors.RESET}\n")
+        else:
+            print(f"\n  {Colors.YELLOW}💡 Interrupt commands: !status !stop !focus on [area]{Colors.RESET}\n")
 
-        self.session_id = self.memory.create_session(target, scope)
+        self.session_id = session_id
         self.logger.session_id = self.session_id
         self.logger.memory = self.memory
         self.brain = Brain(self.memory, self.llm, self.logger, self.session_id)
         self.brain.dry_run = dry_run
+        self.brain.quick_mode = quick
 
         # Start autonomous work in background thread
         self.autonomous_thread = threading.Thread(
@@ -458,51 +510,94 @@ class RAJAN:
         )
         self.autonomous_thread.start()
 
-        # Input thread — reads ! commands while brain works
-        self._interrupt_input_loop()
+        if mode == "semi":
+            # In semi-auto mode the brain itself asks for approval on every
+            # task, so we must NOT run a second input() reader here (two
+            # readers racing on stdin swap each other's answers). Keep the
+            # process alive by joining instead.
+            self.autonomous_thread.join()
+        else:
+            # Input thread — reads ! commands while brain works
+            self._interrupt_input_loop()
 
     def _interrupt_input_loop(self):
-        """Listen for ! interrupt commands while RAJAN works"""
-        while self.autonomous_thread and self.autonomous_thread.is_alive():
-            try:
-                user_input = input("").strip()
+        """Listen for ! interrupt commands while RAJAN works.
+
+        A daemon reader thread collects stdin lines into a queue so the main
+        loop can exit as soon as the brain finishes (via done_event) instead
+        of hanging on input() until the next keypress.
+        """
+        import queue as _queue
+
+        lines = _queue.Queue()
+
+        def reader():
+            while True:
+                try:
+                    lines.put(input(""))
+                except EOFError:
+                    lines.put(None)
+                    return
+                except KeyboardInterrupt:
+                    lines.put("!quit")
+                    return
+
+        reader_thread = threading.Thread(target=reader, daemon=True)
+        reader_thread.start()
+
+        try:
+            while self.autonomous_thread and self.autonomous_thread.is_alive():
+                try:
+                    user_input = lines.get(timeout=0.5)
+                except _queue.Empty:
+                    continue
+                if user_input is None:  # stdin closed
+                    if self.brain:
+                        self.brain.running = False
+                    break
+                user_input = user_input.strip()
                 if user_input:
+                    if user_input.lower() in ("!quit", "!exit", "quit", "exit"):
+                        if self.brain:
+                            self.brain.running = False
+                        break
                     if self.brain:
                         self.brain.send_interrupt(user_input)
-                    if user_input.lower() in ("!quit", "!exit"):
-                        break
-            except (KeyboardInterrupt, EOFError):
-                if self.brain:
-                    self.brain.running = False
-                break
-            except Exception:
-                time.sleep(0.1)
+        except KeyboardInterrupt:
+            if self.brain:
+                self.brain.running = False
 
+        # Give the session a moment to flush its summary, then clean up
+        if self.brain:
+            self.brain.done_event.wait(timeout=10)
         if self.autonomous_thread:
             self.autonomous_thread.join(timeout=5)
 
     def _resume_session(self, session_id):
-        """Resume a previous session"""
+        """Resume a previous session in place (completed tasks are not re-run)"""
         session = self.memory.get_session(session_id)
         if not session:
             print(f"  ❌ Session {session_id} not found")
             return
-        print(f"\n  ��� Resuming session: {session_id}")
+        print(f"\n  ⏳ Resuming session: {session_id}")
         print(f"  Target: {session['target']}")
         print(f"  Started: {session['started_at']}\n")
-        self.session_id = session_id
-        self.brain = Brain(self.memory, self.llm, self.logger, session_id)
-        self._start_autonomous(session["target"], session.get("scope", ""), "auto")
+        # Pass the EXISTING session id so the previous run's task progress is
+        # restored from memory instead of silently starting a new session.
+        self._start_autonomous(
+            session["target"], session.get("scope", ""), "auto",
+            session_id=session_id
+        )
 
     def _show_sessions(self):
         sessions = self.memory.get_all_sessions()
         if not sessions:
             print("  No sessions found.")
             return
-        print(f"\n  {'ID':<10} {'Target':<30} {'Status':<12} {'Started'}")
-        print(f"  {'─'*70}")
+        print(f"\n  {'ID':<38} {'Target':<24} {'Status':<12} {'Started'}")
+        print(f"  {'─'*80}")
         for sid, target, status, started in sessions:
-            print(f"  {sid:<10} {target:<30} {status:<12} {started}")
+            print(f"  {sid:<38} {target:<24} {status:<12} {started}")
         print()
 
     def _show_findings(self):
@@ -527,8 +622,9 @@ class RAJAN:
             print("  No session to report on. Run a scan first!")
             return
         from agents.reporter import ReporterAgent
+        session = self.memory.get_session(self.session_id) or {}
         r = ReporterAgent(self.memory, self.llm, self.logger, self.session_id,
-                          self.memory.get_session(self.session_id)["target"])
+                          session.get("target", ""))
         filename = r.generate_report()
         print(f"\n  ✅ Report saved: {filename}\n")
 
@@ -536,6 +632,9 @@ class RAJAN:
         sid = self.session_id or self.memory.get_last_session()
         if not sid:
             print("  No session to export. Run a scan first!")
+            return
+        if fmt not in ("all", "json", "csv", "txt", "hackerone"):
+            print(f"  ❌ Unknown export format '{fmt}'. Use: json, csv, txt, hackerone, all")
             return
         from core.exporter import Exporter
         e = Exporter(self.memory, sid)

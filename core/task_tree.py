@@ -99,6 +99,44 @@ class TaskTree:
 
         return self.tasks
 
+    def restore_previous_progress(self):
+        """
+        Resume support — after rebuilding the default tree for an existing
+        session, restore completion state recorded by a previous run so RAJAN
+        never repeats work it already did.
+        Returns the number of tasks restored as done/skipped.
+        """
+        if not (self.memory and self.session_id):
+            return 0
+        try:
+            rows = self.memory.get_tasks(self.session_id)
+        except Exception:
+            return 0
+        # Keep the OLDEST row per (task, agent): on resume the tree build
+        # inserts fresh 'pending' rows after the original ones.
+        seen = {}
+        for r in rows:
+            key = (r.get("task", ""), r.get("agent", "") or "")
+            if key not in seen:
+                seen[key] = r
+        restored = 0
+        for t in self.tasks:
+            r = seen.get((t.name, t.agent))
+            if not r:
+                continue
+            st = (r.get("status") or "pending").lower()
+            if st == "done" and t.status == "pending":
+                t.status = "done"
+                t.result = r.get("result") or ""
+                self.done_ids.add(t.task_id)
+                restored += 1
+            elif st == "skipped" and t.status == "pending":
+                t.status = "skipped"
+                t.result = r.get("result") or ""
+                self.done_ids.add(t.task_id)
+                restored += 1
+        return restored
+
     def get_next_task(self):
         """Get highest priority ready task"""
         # Failed or skipped prerequisites block descendants instead of
